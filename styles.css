@@ -126,10 +126,11 @@
 	height: 14px;
 }
 
-/* Assistant text is selectable/copyable by default */
-.sidekick-msg-assistant .sidekick-msg-body {
+/* Message text is selectable/copyable */
+.sidekick-msg-body {
 	user-select: text;
 	-webkit-user-select: text;
+	cursor: text;
 }
 
 .sidekick-msg-body-wrapper {
@@ -214,6 +215,42 @@
 	50% { opacity: 0.5; }
 }
 
+/* ── Message metadata footer ──────────────────────────────────── */
+
+.sidekick-msg-metadata {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	padding: 6px 0 2px;
+	margin-top: 4px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.sidekick-metadata-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+}
+
+.sidekick-metadata-tools {
+	cursor: default;
+}
+
+.sidekick-metadata-icon {
+	display: inline-flex;
+	align-items: center;
+	opacity: 0.7;
+}
+
+.sidekick-metadata-icon svg {
+	width: 12px;
+	height: 12px;
+	stroke-width: 2px;
+}
+
 /* Thinking indicator */
 
 .sidekick-thinking {
@@ -227,6 +264,11 @@
 
 .sidekick-thinking-dots {
 	animation: sidekick-pulse 1.2s ease-in-out infinite;
+}
+
+.sidekick-cancelled {
+	color: var(--text-muted);
+	font-style: italic;
 }
 
 /* ── Bottom panel ─────────────────────────────────────────────── */

@@ -36,7 +36,7 @@ const SAMPLE_AGENT_CONTENT = `---
 name: Grammar
 description: The Grammar Assistant agent helps users improve their writing
 tools: 
-model: Claude Sonnet 4.5 (copilot)
+model: Claude Sonnet 4.5
 ---
 
 # Grammar Assistant agent Instructions

@@ -74,6 +74,7 @@ export async function loadSkills(app: App, skillsFolder: string): Promise<SkillI
 
 /**
  * Load MCP server entries from mcp.json in the given vault tools folder.
+ * Supports both { "servers": { ... } } and { "mcpServers": { ... } } formats.
  */
 export async function loadMcpServers(app: App, toolsFolder: string): Promise<McpServerEntry[]> {
 	const mcpPath = normalizePath(`${toolsFolder}/mcp.json`);
@@ -82,15 +83,23 @@ export async function loadMcpServers(app: App, toolsFolder: string): Promise<Mcp
 
 	try {
 		const content = await app.vault.adapter.read(mcpPath);
-		const parsed: unknown = JSON.parse(content);
-		if (parsed && typeof parsed === 'object' && 'servers' in parsed) {
-			const servers = (parsed as {servers: Record<string, unknown>}).servers;
-			for (const [name, config] of Object.entries(servers)) {
+		const parsed = JSON.parse(content) as Record<string, unknown>;
+		if (!parsed || typeof parsed !== 'object') return entries;
+
+		// Accept both "servers" and "mcpServers" keys
+		const serversObj =
+			(parsed['servers'] as Record<string, unknown> | undefined) ??
+			(parsed['mcpServers'] as Record<string, unknown> | undefined);
+
+		if (serversObj && typeof serversObj === 'object') {
+			for (const [name, config] of Object.entries(serversObj)) {
 				if (config && typeof config === 'object') {
 					entries.push({name, config: config as Record<string, unknown>});
 				}
 			}
 		}
-	} catch { /* ignore malformed JSON */ }
+	} catch (e) {
+		console.error('Sidekick: failed to parse mcp.json', e);
+	}
 	return entries;
 }
