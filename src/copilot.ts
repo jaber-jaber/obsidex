@@ -255,4 +255,5 @@ export type {
 	PermissionRequest,
 	PermissionRequestResult,
 	PermissionHandler,
+	SessionListFilter,
 };

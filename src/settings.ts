@@ -8,6 +8,8 @@ export interface SidekickSettings {
 	copilotLocation: string;
 	sidekickFolder: string;
 	toolApproval: 'ask' | 'allow';
+	/** Custom display names for sessions, keyed by SDK sessionId. */
+	sessionNames?: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: SidekickSettings = {

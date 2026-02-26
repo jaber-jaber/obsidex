@@ -17,6 +17,7 @@ import {approveAll} from './copilot';
 import type {
 	CopilotSession,
 	SessionConfig,
+	SessionMetadata,
 	MCPServerConfig,
 	ModelInfo,
 	MessageOptions,
@@ -271,7 +272,15 @@ export class SidekickView extends ItemView {
 	private turnUsage: {inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; model?: string} | null = null;
 	private activeToolCalls = new Map<string, {toolName: string; detailsEl: HTMLDetailsElement}>();
 
+	// ── Session sidebar state ──────────────────────────────────
+	private sessionList: SessionMetadata[] = [];
+	private sessionNames: Record<string, string> = {};
+	private currentSessionId: string | null = null;
+	private sidebarWidth = 40;
+	private sessionFilter = '';
+
 	// ── DOM refs ─────────────────────────────────────────────────
+	private mainEl!: HTMLElement;
 	private chatContainer!: HTMLElement;
 	private streamingBodyEl: HTMLElement | null = null;
 	private toolCallsContainer: HTMLElement | null = null;
@@ -288,6 +297,12 @@ export class SidekickView extends ItemView {
 	private debugBtnEl!: HTMLElement;
 	private streamingComponent: Component | null = null;
 	private streamingWrapperEl: HTMLElement | null = null;
+
+	// ── Session sidebar DOM refs ─────────────────────────────────
+	private sidebarEl!: HTMLElement;
+	private sidebarListEl!: HTMLElement;
+	private sidebarSearchEl!: HTMLInputElement;
+	private splitterEl!: HTMLElement;
 
 	private eventUnsubscribers: (() => void)[] = [];
 
@@ -316,6 +331,10 @@ export class SidekickView extends ItemView {
 		this.buildUI();
 		await this.loadAllConfigs();
 
+		// Load session sidebar
+		this.sessionNames = this.plugin.settings.sessionNames ?? {};
+		void this.loadSessions();
+
 		// Track active note
 		this.updateActiveNote();
 		this.registerEvent(
@@ -334,18 +353,28 @@ export class SidekickView extends ItemView {
 		root.empty();
 		root.addClass('sidekick-root');
 
+		// Main conversation area
+		this.mainEl = root.createDiv({cls: 'sidekick-main'});
+
 		// Chat history (scrollable)
-		this.chatContainer = root.createDiv({cls: 'sidekick-chat sidekick-hide-debug'});
+		this.chatContainer = this.mainEl.createDiv({cls: 'sidekick-chat sidekick-hide-debug'});
 		this.renderWelcome();
 
 		// Bottom panel
-		const bottom = root.createDiv({cls: 'sidekick-bottom'});
+		const bottom = this.mainEl.createDiv({cls: 'sidekick-bottom'});
 
 		// Input area
 		this.buildInputArea(bottom);
 
 		// Config toolbar (agents, models, skills, tools, action buttons)
 		this.buildConfigToolbar(bottom);
+
+		// Splitter
+		this.splitterEl = root.createDiv({cls: 'sidekick-splitter'});
+		this.initSplitter();
+
+		// Session sidebar
+		this.buildSessionSidebar(root);
 	}
 
 	private renderWelcome(): void {
@@ -847,6 +876,348 @@ export class SidekickView extends ItemView {
 		}).open();
 	}
 
+	// ── Session sidebar ──────────────────────────────────────────
+
+	private buildSessionSidebar(parent: HTMLElement): void {
+		this.sidebarEl = parent.createDiv({cls: 'sidekick-sidebar'});
+		this.sidebarEl.style.width = `${this.sidebarWidth}px`;
+
+		// Header: new session button + search
+		const header = this.sidebarEl.createDiv({cls: 'sidekick-sidebar-header'});
+
+		const newBtn = header.createEl('button', {
+			cls: 'clickable-icon sidekick-icon-btn sidekick-sidebar-new-btn',
+			attr: {title: 'New session'},
+		});
+		setIcon(newBtn, 'plus');
+		newBtn.addEventListener('click', () => void this.newConversation());
+
+		this.sidebarSearchEl = header.createEl('input', {
+			type: 'text',
+			placeholder: 'Search…',
+			cls: 'sidekick-sidebar-search',
+		});
+		this.sidebarSearchEl.addEventListener('input', () => {
+			this.sessionFilter = this.sidebarSearchEl.value.toLowerCase();
+			this.renderSessionList();
+		});
+
+		// Session list (scrollable)
+		this.sidebarListEl = this.sidebarEl.createDiv({cls: 'sidekick-sidebar-list'});
+	}
+
+	private initSplitter(): void {
+		let startX = 0;
+		let startWidth = 0;
+		let dragging = false;
+
+		const onMouseMove = (e: MouseEvent) => {
+			if (!dragging) return;
+			// Sidebar is on the right, so dragging left increases width
+			const dx = startX - e.clientX;
+			const newWidth = Math.max(40, Math.min(300, startWidth + dx));
+			this.sidebarWidth = newWidth;
+			this.sidebarEl.style.width = `${newWidth}px`;
+			this.renderSessionList();
+		};
+
+		const onMouseUp = () => {
+			dragging = false;
+			document.removeEventListener('mousemove', onMouseMove);
+			document.removeEventListener('mouseup', onMouseUp);
+			this.splitterEl.removeClass('is-dragging');
+			document.body.removeClass('sidekick-no-select');
+		};
+
+		this.splitterEl.addEventListener('mousedown', (e) => {
+			e.preventDefault();
+			dragging = true;
+			startX = e.clientX;
+			startWidth = this.sidebarWidth;
+			this.splitterEl.addClass('is-dragging');
+			document.body.addClass('sidekick-no-select');
+			document.addEventListener('mousemove', onMouseMove);
+			document.addEventListener('mouseup', onMouseUp);
+		});
+
+		this.register(() => {
+			document.removeEventListener('mousemove', onMouseMove);
+			document.removeEventListener('mouseup', onMouseUp);
+		});
+	}
+
+	private async loadSessions(): Promise<void> {
+		if (!this.plugin.copilot) return;
+		try {
+			this.sessionList = await this.plugin.copilot.listSessions();
+			// Sort by modifiedTime, newest first
+			this.sessionList.sort((a, b) => {
+				const ta = a.modifiedTime instanceof Date ? a.modifiedTime.getTime() : new Date(a.modifiedTime).getTime();
+				const tb = b.modifiedTime instanceof Date ? b.modifiedTime.getTime() : new Date(b.modifiedTime).getTime();
+				return tb - ta;
+			});
+			this.renderSessionList();
+		} catch (e) {
+			console.warn('Sidekick: failed to load sessions', e);
+		}
+	}
+
+	private renderSessionList(): void {
+		if (!this.sidebarListEl) return;
+		this.sidebarListEl.empty();
+
+		const isExpanded = this.sidebarWidth > 80;
+		// Show/hide search based on width
+		if (this.sidebarSearchEl) {
+			this.sidebarSearchEl.style.display = isExpanded ? '' : 'none';
+		}
+
+		for (const session of this.sessionList) {
+			const name = this.getSessionDisplayName(session);
+			if (this.sessionFilter && !name.toLowerCase().includes(this.sessionFilter)) continue;
+
+			const item = this.sidebarListEl.createDiv({cls: 'sidekick-session-item'});
+			const isActive = session.sessionId === this.currentSessionId;
+			if (isActive) item.addClass('is-active');
+
+			const iconEl = item.createSpan({cls: 'sidekick-session-icon'});
+			setIcon(iconEl, 'message-square');
+
+			// Green active dot when processing
+			if (isActive && this.isStreaming) {
+				iconEl.createSpan({cls: 'sidekick-session-active-dot'});
+			}
+
+			if (isExpanded) {
+				const details = item.createDiv({cls: 'sidekick-session-details'});
+				details.createDiv({cls: 'sidekick-session-name', text: name});
+				const modTime = session.modifiedTime instanceof Date
+					? session.modifiedTime
+					: new Date(session.modifiedTime);
+				details.createDiv({cls: 'sidekick-session-time', text: this.formatTimeAgo(modTime)});
+			}
+
+			item.setAttribute('title', name);
+			item.addEventListener('click', () => void this.selectSession(session.sessionId));
+			item.addEventListener('contextmenu', (e) => this.showSessionContextMenu(e, session.sessionId));
+		}
+	}
+
+	private getSessionDisplayName(session: SessionMetadata): string {
+		return this.sessionNames[session.sessionId]
+			|| session.summary
+			|| `Session ${session.sessionId.slice(0, 8)}`;
+	}
+
+	private async selectSession(sessionId: string): Promise<void> {
+		if (sessionId === this.currentSessionId && this.currentSession) return;
+
+		// Tear down current session handle (but SDK preserves it)
+		this.unsubscribeEvents();
+		if (this.currentSession) {
+			try { await this.currentSession.destroy(); } catch { /* ignore */ }
+			this.currentSession = null;
+		}
+
+		// Clear UI
+		this.messages = [];
+		this.streamingContent = '';
+		this.streamingBodyEl = null;
+		this.isStreaming = false;
+		this.chatContainer.empty();
+
+		try {
+			// Build config for resumed session
+			const permissionHandler = (request: PermissionRequest) => {
+				if (this.plugin.settings.toolApproval === 'allow') {
+					return approveAll(request, {sessionId: ''});
+				}
+				const modal = new ToolApprovalModal(this.app, request);
+				modal.open();
+				return modal.promise;
+			};
+
+			this.currentSession = await this.plugin.copilot!.resumeSession(sessionId, {
+				streaming: true,
+				onPermissionRequest: permissionHandler,
+				workingDirectory: this.getWorkingDirectory(),
+			});
+			this.currentSessionId = sessionId;
+			this.configDirty = false;
+			this.registerSessionEvents();
+
+			// Load and render message history from SDK
+			const events = await this.currentSession.getMessages();
+			for (const event of events) {
+				if (event.type === 'user.message') {
+					const msg: ChatMessage = {
+						id: event.id,
+						role: 'user',
+						content: event.data.content,
+						timestamp: new Date(event.timestamp).getTime(),
+					};
+					this.messages.push(msg);
+					this.renderMessageBubble(msg);
+				} else if (event.type === 'assistant.message') {
+					const msg: ChatMessage = {
+						id: event.id,
+						role: 'assistant',
+						content: event.data.content,
+						timestamp: new Date(event.timestamp).getTime(),
+					};
+					this.messages.push(msg);
+					this.renderMessageBubble(msg);
+				}
+			}
+
+			if (this.messages.length === 0) {
+				this.renderWelcome();
+			}
+
+			// Restore the agent that was used in this session
+			const sessionName = this.sessionNames[sessionId] || '';
+			const colonIdx = sessionName.indexOf(':');
+			if (colonIdx > 0) {
+				const agentName = sessionName.substring(0, colonIdx).trim();
+				const matchingAgent = this.agents.find(a => a.name === agentName);
+				if (matchingAgent) {
+					this.selectedAgent = matchingAgent.name;
+					this.agentSelect.value = matchingAgent.name;
+					// Also set the agent's preferred model
+					if (matchingAgent.model) {
+						const target = matchingAgent.model.toLowerCase();
+						let modelMatch = this.models.find(
+							m => m.name.toLowerCase() === target || m.id.toLowerCase() === target
+						);
+						if (!modelMatch) {
+							modelMatch = this.models.find(
+								m => m.id.toLowerCase().includes(target) || m.name.toLowerCase().includes(target)
+							);
+						}
+						if (modelMatch) {
+							this.selectedModel = modelMatch.id;
+							this.modelSelect.value = modelMatch.id;
+						}
+					}
+				}
+			}
+
+			// Force scroll to the end of the loaded conversation
+			window.requestAnimationFrame(() => {
+				this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+			});
+
+			this.renderSessionList();
+			this.updateSendButton();
+		} catch (e) {
+			this.addInfoMessage(`Failed to load session: ${String(e)}`);
+			this.renderWelcome();
+			this.currentSessionId = null;
+			this.renderSessionList();
+		}
+	}
+
+	private showSessionContextMenu(e: MouseEvent, sessionId: string): void {
+		e.preventDefault();
+		e.stopPropagation();
+		const menu = new Menu();
+
+		menu.addItem(item => item
+			.setTitle('Rename')
+			.setIcon('pencil')
+			.onClick(() => this.renameSession(sessionId)));
+
+		menu.addItem(item => item
+			.setTitle('Delete')
+			.setIcon('trash-2')
+			.onClick(() => void this.deleteSessionById(sessionId)));
+
+		menu.showAtMouseEvent(e);
+	}
+
+	private renameSession(sessionId: string): void {
+		const currentName = this.sessionNames[sessionId] || '';
+		const modal = new Modal(this.app);
+		modal.titleEl.setText('Rename session');
+
+		const input = modal.contentEl.createEl('input', {
+			type: 'text',
+			value: currentName,
+			cls: 'sidekick-rename-input',
+		});
+		input.style.width = '100%';
+		input.style.marginBottom = '12px';
+
+		const btnRow = modal.contentEl.createDiv({cls: 'sidekick-approval-buttons'});
+		const saveBtn = btnRow.createEl('button', {cls: 'mod-cta', text: 'Save'});
+		saveBtn.addEventListener('click', () => {
+			const newName = input.value.trim();
+			if (newName) {
+				this.sessionNames[sessionId] = newName;
+				this.saveSessionNames();
+				this.renderSessionList();
+			}
+			modal.close();
+		});
+
+		const cancelBtn = btnRow.createEl('button', {text: 'Cancel'});
+		cancelBtn.addEventListener('click', () => modal.close());
+
+		// Enter key to save
+		input.addEventListener('keydown', (ke) => {
+			if (ke.key === 'Enter') {
+				ke.preventDefault();
+				saveBtn.click();
+			}
+		});
+
+		modal.open();
+		input.focus();
+		input.select();
+	}
+
+	private async deleteSessionById(sessionId: string): Promise<void> {
+		try {
+			await this.plugin.copilot!.deleteSession(sessionId);
+		} catch (e) {
+			new Notice(`Failed to delete session: ${String(e)}`);
+			return;
+		}
+
+		delete this.sessionNames[sessionId];
+		this.saveSessionNames();
+		this.sessionList = this.sessionList.filter(s => s.sessionId !== sessionId);
+
+		if (this.currentSessionId === sessionId) {
+			this.currentSessionId = null;
+			this.currentSession = null;
+			await this.newConversation();
+		}
+
+		this.renderSessionList();
+		new Notice('Session deleted.');
+	}
+
+	private saveSessionNames(): void {
+		this.plugin.settings.sessionNames = {...this.sessionNames};
+		void this.plugin.saveSettings();
+	}
+
+	private formatTimeAgo(d: Date): string {
+		const now = Date.now();
+		const diff = now - d.getTime();
+		const minutes = Math.floor(diff / 60000);
+		const hours = Math.floor(diff / 3600000);
+		const days = Math.floor(diff / 86400000);
+
+		if (minutes < 1) return 'Just now';
+		if (minutes < 60) return `${minutes}m ago`;
+		if (hours < 24) return `${hours}h ago`;
+		if (days === 1) return 'Yesterday';
+		if (days < 7) return `${days}d ago`;
+		return d.toLocaleDateString();
+	}
+
 	// ── Message rendering ────────────────────────────────────────
 
 	private addUserMessage(content: string, attachments: ChatAttachment[], scopePaths: string[]): void {
@@ -1087,6 +1458,10 @@ export class SidekickView extends ItemView {
 
 		this.isStreaming = false;
 		this.updateSendButton();
+		this.renderSessionList();  // Update active indicator
+
+		// Refresh session list from SDK now that the turn is complete
+		void this.loadSessions();
 	}
 
 	private renderMessageMetadata(): void {
@@ -1253,10 +1628,20 @@ export class SidekickView extends ItemView {
 		this.isStreaming = true;
 		this.streamingContent = '';
 		this.updateSendButton();
+		this.renderSessionList();  // Show green active dot
 		this.addAssistantPlaceholder();
 
 		try {
 			await this.ensureSession();
+
+			// Name the session if this is the first message
+			if (this.currentSessionId && !this.sessionNames[this.currentSessionId]) {
+				const agentName = this.selectedAgent || 'Chat';
+				const truncated = prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt;
+				this.sessionNames[this.currentSessionId] = `${agentName}: ${truncated}`;
+				this.saveSessionNames();
+				this.renderSessionList();
+			}
 
 			const sdkAttachments = this.buildSdkAttachments(currentAttachments);
 			const fullPrompt = this.buildPrompt(prompt, currentAttachments);
@@ -1382,8 +1767,21 @@ export class SidekickView extends ItemView {
 		};
 
 		this.currentSession = await this.plugin.copilot!.createSession(sessionConfig);
+		this.currentSessionId = this.currentSession.sessionId;
 		this.configDirty = false;
 		this.registerSessionEvents();
+
+		// Add new session to list immediately so sidebar updates instantly
+		if (!this.sessionList.some(s => s.sessionId === this.currentSession!.sessionId)) {
+			const now = new Date();
+			this.sessionList.unshift({
+				sessionId: this.currentSession.sessionId,
+				startTime: now,
+				modifiedTime: now,
+				isRemote: false,
+			} as SessionMetadata);
+		}
+		this.renderSessionList();
 	}
 
 	private registerSessionEvents(): void {
@@ -1466,6 +1864,7 @@ export class SidekickView extends ItemView {
 
 	private async newConversation(): Promise<void> {
 		await this.destroySession();
+		this.currentSessionId = null;
 		this.messages = [];
 		this.streamingContent = '';
 		this.streamingBodyEl = null;
@@ -1479,6 +1878,7 @@ export class SidekickView extends ItemView {
 		this.renderAttachments();
 		this.renderScopeBar();
 		this.updateSendButton();
+		this.renderSessionList();
 	}
 
 	// ── Prompt & attachment building ─────────────────────────────
