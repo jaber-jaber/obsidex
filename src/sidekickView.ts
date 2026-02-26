@@ -24,12 +24,38 @@ import type {
 	PermissionRequest,
 	PermissionRequestResult,
 } from './copilot';
-import type {AgentConfig, SkillInfo, McpServerEntry, PromptConfig, ChatMessage, ChatAttachment} from './types';
-import {loadAgents, loadSkills, loadMcpServers, loadPrompts} from './configLoader';
-import {getAgentsFolder, getSkillsFolder, getToolsFolder, getPromptsFolder} from './settings';
+import type {AgentConfig, SkillInfo, McpServerEntry, PromptConfig, TriggerConfig, ChatMessage, ChatAttachment} from './types';
+import {loadAgents, loadSkills, loadMcpServers, loadPrompts, loadTriggers} from './configLoader';
+import {getAgentsFolder, getSkillsFolder, getToolsFolder, getPromptsFolder, getTriggersFolder} from './settings';
+import {TriggerScheduler} from './triggerScheduler';
+import type {TriggerFireContext} from './triggerScheduler';
 import {VaultScopeModal} from './vaultScopeModal';
 
 export const SIDEKICK_VIEW_TYPE = 'sidekick-view';
+
+/** State for a session that may be running in the background while the user views another session. */
+interface BackgroundSession {
+	sessionId: string;
+	session: CopilotSession;
+	messages: ChatMessage[];
+	isStreaming: boolean;
+	streamingContent: string;
+	/** Preserved DOM from chat container when the session is hidden. */
+	savedDom: DocumentFragment | null;
+	/** Event unsubscribers for this session. */
+	unsubscribers: (() => void)[];
+	/** Turn-level metadata accumulated while streaming (even in background). */
+	turnStartTime: number;
+	turnToolsUsed: string[];
+	turnSkillsUsed: string[];
+	turnUsage: {inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; model?: string} | null;
+	activeToolCalls: Map<string, {toolName: string; detailsEl: HTMLDetailsElement}>;
+	/** Streaming component for Markdown rendering. */
+	streamingComponent: Component | null;
+	streamingBodyEl: HTMLElement | null;
+	streamingWrapperEl: HTMLElement | null;
+	toolCallsContainer: HTMLElement | null;
+}
 
 // FileAttachModal removed — attach now uses OS native file dialog
 
@@ -250,6 +276,8 @@ export class SidekickView extends ItemView {
 	private skills: SkillInfo[] = [];
 	private mcpServers: McpServerEntry[] = [];
 	private prompts: PromptConfig[] = [];
+	private triggers: TriggerConfig[] = [];
+	private triggerScheduler: TriggerScheduler | null = null;
 	private activePrompt: PromptConfig | null = null;
 
 	private selectedAgent = '';
@@ -275,6 +303,7 @@ export class SidekickView extends ItemView {
 	private activeToolCalls = new Map<string, {toolName: string; detailsEl: HTMLDetailsElement}>();
 
 	// ── Session sidebar state ──────────────────────────────────
+	private activeSessions = new Map<string, BackgroundSession>();
 	private sessionList: SessionMetadata[] = [];
 	private sessionNames: Record<string, string> = {};
 	private currentSessionId: string | null = null;
@@ -341,6 +370,9 @@ export class SidekickView extends ItemView {
 		this.sessionNames = this.plugin.settings.sessionNames ?? {};
 		void this.loadSessions();
 
+		// Initialize trigger scheduler
+		this.initTriggerScheduler();
+
 		// Track active note
 		this.updateActiveNote();
 		this.registerEvent(
@@ -349,7 +381,8 @@ export class SidekickView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
-		await this.destroySession();
+		this.triggerScheduler?.stop();
+		await this.destroyAllSessions();
 	}
 
 	// ── UI construction ──────────────────────────────────────────
@@ -525,15 +558,13 @@ export class SidekickView extends ItemView {
 		this.agentSelect = agentGroup.createEl('select', {cls: 'sidekick-select'});
 		this.agentSelect.addEventListener('change', () => {
 			this.selectedAgent = this.agentSelect.value;
-			// Auto-select agent's preferred model
 			const agent = this.agents.find(a => a.name === this.selectedAgent);
+			// Auto-select agent's preferred model
 			if (agent?.model) {
 				const target = agent.model.toLowerCase();
-				// Try exact match first (name or id)
 				let modelMatch = this.models.find(
 					m => m.name.toLowerCase() === target || m.id.toLowerCase() === target
 				);
-				// Fallback: partial match (id or name contains the agent's model string)
 				if (!modelMatch) {
 					modelMatch = this.models.find(
 						m => m.id.toLowerCase().includes(target) || m.name.toLowerCase().includes(target)
@@ -544,6 +575,8 @@ export class SidekickView extends ItemView {
 					this.modelSelect.value = modelMatch.id;
 				}
 			}
+			// Apply agent's tools and skills filter
+			this.applyAgentToolsAndSkills(agent);
 			this.configDirty = true;
 		});
 
@@ -602,8 +635,10 @@ export class SidekickView extends ItemView {
 			this.skills = await loadSkills(this.app, getSkillsFolder(this.plugin.settings));
 			this.mcpServers = await loadMcpServers(this.app, getToolsFolder(this.plugin.settings));
 			this.prompts = await loadPrompts(this.app, getPromptsFolder(this.plugin.settings));
+			this.triggers = await loadTriggers(this.app, getTriggersFolder(this.plugin.settings));
+			this.triggerScheduler?.setTriggers(this.triggers);
 
-			// Select all skills and tools by default
+			// Enable all skills and tools by default (agent filter applied in updateConfigUI)
 			this.enabledSkills = new Set(this.skills.map(s => s.name));
 			this.enabledMcpServers = new Set(this.mcpServers.map(s => s.name));
 
@@ -620,7 +655,7 @@ export class SidekickView extends ItemView {
 
 		this.updateConfigUI();
 		this.configDirty = true;
-		new Notice(`Loaded ${this.agents.length} agent(s), ${this.models.length} model(s), ${this.skills.length} skill(s), ${this.mcpServers.length} tool server(s), ${this.prompts.length} prompt(s).`);
+		new Notice(`Loaded ${this.agents.length} agent(s), ${this.models.length} model(s), ${this.skills.length} skill(s), ${this.mcpServers.length} tool server(s), ${this.prompts.length} prompt(s), ${this.triggers.length} trigger(s).`);
 	}
 
 	private updateConfigUI(): void {
@@ -669,9 +704,9 @@ export class SidekickView extends ItemView {
 			this.modelSelect.value = this.selectedModel;
 		}
 
-		// Update skill / tool button badges
-		this.updateSkillsBadge();
-		this.updateToolsBadge();
+		// Apply agent's tools and skills filter
+		const selectedAgentForFilter = this.agents.find(a => a.name === this.selectedAgent);
+		this.applyAgentToolsAndSkills(selectedAgentForFilter);
 	}
 
 	private openSkillsMenu(e: MouseEvent): void {
@@ -720,6 +755,36 @@ export class SidekickView extends ItemView {
 			}
 		}
 		menu.showAtMouseEvent(e);
+	}
+
+	/**
+	 * Apply the agent's tools and skills filter.
+	 * If the agent specifies a list, enable only those.
+	 * If the list is empty/undefined or the agent has no preference, enable all.
+	 */
+	private applyAgentToolsAndSkills(agent?: AgentConfig): void {
+		// Tools
+		if (agent?.tools && agent.tools.length > 0) {
+			const allowed = new Set(agent.tools);
+			this.enabledMcpServers = new Set(
+				this.mcpServers.filter(s => allowed.has(s.name)).map(s => s.name)
+			);
+		} else {
+			this.enabledMcpServers = new Set(this.mcpServers.map(s => s.name));
+		}
+
+		// Skills
+		if (agent?.skills && agent.skills.length > 0) {
+			const allowed = new Set(agent.skills);
+			this.enabledSkills = new Set(
+				this.skills.filter(s => allowed.has(s.name)).map(s => s.name)
+			);
+		} else {
+			this.enabledSkills = new Set(this.skills.map(s => s.name));
+		}
+
+		this.updateSkillsBadge();
+		this.updateToolsBadge();
 	}
 
 	private updateSkillsBadge(): void {
@@ -1145,8 +1210,11 @@ export class SidekickView extends ItemView {
 			const iconEl = item.createSpan({cls: 'sidekick-session-icon'});
 			setIcon(iconEl, 'message-square');
 
-			// Green active dot when processing
-			if (isActive && this.isStreaming) {
+			// Green active dot when processing (current or background session)
+			const isCurrentStreaming = isActive && this.isStreaming;
+			const bgSession = this.activeSessions.get(session.sessionId);
+			const isBgStreaming = bgSession?.isStreaming ?? false;
+			if (isCurrentStreaming || isBgStreaming) {
 				iconEl.createSpan({cls: 'sidekick-session-active-dot'});
 			}
 
@@ -1171,22 +1239,275 @@ export class SidekickView extends ItemView {
 			|| `Session ${session.sessionId.slice(0, 8)}`;
 	}
 
+	// ── Background session management ────────────────────────────
+
+	/**
+	 * Save the currently viewed session into the activeSessions map.
+	 * If the session is streaming, events keep routing to the BackgroundSession.
+	 * If idle, the session handle is preserved for quick switching.
+	 */
+	private saveCurrentToBackground(): void {
+		if (!this.currentSession || !this.currentSessionId) return;
+
+		// Detach events from foreground routing
+		this.unsubscribeEvents();
+
+		// Save chat DOM into a DocumentFragment for fast restore
+		const fragment = document.createDocumentFragment();
+		while (this.chatContainer.firstChild) {
+			fragment.appendChild(this.chatContainer.firstChild);
+		}
+
+		const bg: BackgroundSession = {
+			sessionId: this.currentSessionId,
+			session: this.currentSession,
+			messages: [...this.messages],
+			isStreaming: this.isStreaming,
+			streamingContent: this.streamingContent,
+			savedDom: fragment,
+			unsubscribers: [],
+			turnStartTime: this.turnStartTime,
+			turnToolsUsed: [...this.turnToolsUsed],
+			turnSkillsUsed: [...this.turnSkillsUsed],
+			turnUsage: this.turnUsage ? {...this.turnUsage} : null,
+			activeToolCalls: new Map(this.activeToolCalls),
+			streamingComponent: this.streamingComponent,
+			streamingBodyEl: this.streamingBodyEl,
+			streamingWrapperEl: this.streamingWrapperEl,
+			toolCallsContainer: this.toolCallsContainer,
+		};
+
+		// If still streaming, attach background event routing
+		if (bg.isStreaming) {
+			this.registerBackgroundEvents(bg);
+		}
+
+		this.activeSessions.set(this.currentSessionId, bg);
+
+		// Detach streaming component from the view (it lives in the bg now)
+		if (this.streamingComponent) {
+			this.streamingComponent = null;
+		}
+		this.currentSession = null;
+		this.currentSessionId = null;
+	}
+
+	/**
+	 * Restore a BackgroundSession as the foreground session.
+	 */
+	private restoreFromBackground(bg: BackgroundSession): void {
+		// Unsubscribe background event routing
+		for (const unsub of bg.unsubscribers) unsub();
+		bg.unsubscribers = [];
+
+		// Restore state
+		this.currentSession = bg.session;
+		this.currentSessionId = bg.sessionId;
+		this.messages = bg.messages;
+		this.isStreaming = bg.isStreaming;
+		this.streamingContent = bg.streamingContent;
+		this.turnStartTime = bg.turnStartTime;
+		this.turnToolsUsed = bg.turnToolsUsed;
+		this.turnSkillsUsed = bg.turnSkillsUsed;
+		this.turnUsage = bg.turnUsage;
+		this.configDirty = false;
+
+		this.chatContainer.empty();
+
+		if (bg.isStreaming && bg.savedDom) {
+			// Session is still streaming — restore its live DOM (including streaming placeholder)
+			this.streamingComponent = bg.streamingComponent;
+			this.streamingBodyEl = bg.streamingBodyEl;
+			this.streamingWrapperEl = bg.streamingWrapperEl;
+			this.toolCallsContainer = bg.toolCallsContainer;
+			this.activeToolCalls = bg.activeToolCalls;
+			this.chatContainer.appendChild(bg.savedDom);
+			bg.savedDom = null;
+			// Re-render the streaming content that accumulated while in background
+			if (this.streamingContent && this.streamingBodyEl) {
+				void this.updateStreamingRender();
+			}
+		} else {
+			// Session finished while in background — re-render messages from scratch
+			this.streamingComponent = null;
+			this.streamingBodyEl = null;
+			this.streamingWrapperEl = null;
+			this.toolCallsContainer = null;
+			this.activeToolCalls.clear();
+			for (const msg of this.messages) {
+				this.renderMessageBubble(msg);
+			}
+			if (this.messages.length === 0) {
+				this.renderWelcome();
+			}
+		}
+
+		// Re-attach foreground event routing
+		this.registerSessionEvents();
+
+		// Remove from background map
+		this.activeSessions.delete(bg.sessionId);
+
+		// Restore agent from session name
+		this.restoreAgentFromSessionName(bg.sessionId);
+
+		// Force scroll to end
+		window.requestAnimationFrame(() => {
+			this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+		});
+	}
+
+	/**
+	 * Register event handlers that route session events into a BackgroundSession
+	 * object while the session is not being viewed.
+	 */
+	private registerBackgroundEvents(bg: BackgroundSession): void {
+		const session = bg.session;
+
+		bg.unsubscribers.push(
+			session.on('assistant.turn_start', () => {
+				if (bg.turnStartTime === 0) bg.turnStartTime = Date.now();
+			}),
+			session.on('assistant.message_delta', (event) => {
+				bg.streamingContent += event.data.deltaContent;
+				// No DOM rendering — session is hidden
+			}),
+			session.on('assistant.message', () => { /* accumulated via deltas */ }),
+			session.on('assistant.usage', (event) => {
+				const d = event.data;
+				if (!bg.turnUsage) {
+					bg.turnUsage = {
+						inputTokens: d.inputTokens ?? 0,
+						outputTokens: d.outputTokens ?? 0,
+						cacheReadTokens: d.cacheReadTokens ?? 0,
+						cacheWriteTokens: d.cacheWriteTokens ?? 0,
+						model: d.model,
+					};
+				} else {
+					bg.turnUsage.inputTokens += d.inputTokens ?? 0;
+					bg.turnUsage.outputTokens += d.outputTokens ?? 0;
+					bg.turnUsage.cacheReadTokens += d.cacheReadTokens ?? 0;
+					bg.turnUsage.cacheWriteTokens += d.cacheWriteTokens ?? 0;
+					if (d.model) bg.turnUsage.model = d.model;
+				}
+			}),
+			session.on('session.idle', () => {
+				// Finalize the background streaming turn
+				if (bg.streamingContent) {
+					bg.messages.push({
+						id: `a-${Date.now()}`,
+						role: 'assistant',
+						content: bg.streamingContent,
+						timestamp: Date.now(),
+					});
+				}
+				bg.streamingContent = '';
+				bg.streamingBodyEl = null;
+				bg.streamingWrapperEl = null;
+				bg.toolCallsContainer = null;
+				bg.activeToolCalls.clear();
+				bg.streamingComponent = null;
+				bg.turnStartTime = 0;
+				bg.turnToolsUsed = [];
+				bg.turnSkillsUsed = [];
+				bg.turnUsage = null;
+				bg.isStreaming = false;
+				// Re-render sidebar to remove the green dot
+				this.renderSessionList();
+				void this.loadSessions();
+			}),
+			session.on('session.error', (event) => {
+				bg.messages.push({
+					id: `i-${Date.now()}`,
+					role: 'info',
+					content: `Error: ${event.data.message}`,
+					timestamp: Date.now(),
+				});
+				bg.isStreaming = false;
+				bg.streamingContent = '';
+				bg.streamingBodyEl = null;
+				bg.streamingWrapperEl = null;
+				bg.toolCallsContainer = null;
+				bg.activeToolCalls.clear();
+				bg.streamingComponent = null;
+				this.renderSessionList();
+			}),
+			session.on('tool.execution_start', (event) => {
+				bg.turnToolsUsed.push(event.data.toolName);
+				// No DOM manipulation — hidden session
+			}),
+			session.on('tool.execution_complete', () => {
+				// No DOM manipulation — hidden session
+			}),
+			session.on('skill.invoked', (event) => {
+				bg.turnSkillsUsed.push(event.data.name);
+			}),
+		);
+	}
+
+	/**
+	 * Restore the agent and model dropdowns from a session's saved name.
+	 */
+	private restoreAgentFromSessionName(sessionId: string): void {
+		const sessionName = this.sessionNames[sessionId] || '';
+		const colonIdx = sessionName.indexOf(':');
+		if (colonIdx > 0) {
+			const agentName = sessionName.substring(0, colonIdx).trim();
+			const matchingAgent = this.agents.find(a => a.name === agentName);
+			if (matchingAgent) {
+				this.selectedAgent = matchingAgent.name;
+				this.agentSelect.value = matchingAgent.name;
+				if (matchingAgent.model) {
+					const target = matchingAgent.model.toLowerCase();
+					let modelMatch = this.models.find(
+						m => m.name.toLowerCase() === target || m.id.toLowerCase() === target
+					);
+					if (!modelMatch) {
+						modelMatch = this.models.find(
+							m => m.id.toLowerCase().includes(target) || m.name.toLowerCase().includes(target)
+						);
+					}
+					if (modelMatch) {
+						this.selectedModel = modelMatch.id;
+						this.modelSelect.value = modelMatch.id;
+					}
+				}
+			}
+		}
+	}
+
 	private async selectSession(sessionId: string): Promise<void> {
 		if (sessionId === this.currentSessionId && this.currentSession) return;
 
-		// Tear down current session handle (but SDK preserves it)
-		this.unsubscribeEvents();
-		if (this.currentSession) {
-			try { await this.currentSession.destroy(); } catch { /* ignore */ }
-			this.currentSession = null;
+		// ── Save current session to background (if streaming, keep it alive) ──
+		if (this.currentSession && this.currentSessionId) {
+			this.saveCurrentToBackground();
 		}
 
-		// Clear UI
+		// Clear UI for the new session
 		this.messages = [];
 		this.streamingContent = '';
 		this.streamingBodyEl = null;
+		this.streamingWrapperEl = null;
+		this.toolCallsContainer = null;
+		this.activeToolCalls.clear();
+		if (this.streamingComponent) {
+			this.removeChild(this.streamingComponent);
+			this.streamingComponent = null;
+		}
 		this.isStreaming = false;
 		this.chatContainer.empty();
+
+		// ── Check if the target session is already alive in background ──
+		const bg = this.activeSessions.get(sessionId);
+		if (bg) {
+			this.restoreFromBackground(bg);
+			this.renderSessionList();
+			this.updateSendButton();
+			return;
+		}
+
+		// ── Otherwise, resume from SDK (cold load) ──
 
 		try {
 			// Build config for resumed session
@@ -1237,32 +1558,7 @@ export class SidekickView extends ItemView {
 			}
 
 			// Restore the agent that was used in this session
-			const sessionName = this.sessionNames[sessionId] || '';
-			const colonIdx = sessionName.indexOf(':');
-			if (colonIdx > 0) {
-				const agentName = sessionName.substring(0, colonIdx).trim();
-				const matchingAgent = this.agents.find(a => a.name === agentName);
-				if (matchingAgent) {
-					this.selectedAgent = matchingAgent.name;
-					this.agentSelect.value = matchingAgent.name;
-					// Also set the agent's preferred model
-					if (matchingAgent.model) {
-						const target = matchingAgent.model.toLowerCase();
-						let modelMatch = this.models.find(
-							m => m.name.toLowerCase() === target || m.id.toLowerCase() === target
-						);
-						if (!modelMatch) {
-							modelMatch = this.models.find(
-								m => m.id.toLowerCase().includes(target) || m.name.toLowerCase().includes(target)
-							);
-						}
-						if (modelMatch) {
-							this.selectedModel = modelMatch.id;
-							this.modelSelect.value = modelMatch.id;
-						}
-					}
-				}
-			}
+			this.restoreAgentFromSessionName(sessionId);
 
 			// Force scroll to the end of the loaded conversation
 			window.requestAnimationFrame(() => {
@@ -1339,6 +1635,17 @@ export class SidekickView extends ItemView {
 	}
 
 	private async deleteSessionById(sessionId: string): Promise<void> {
+		// Clean up background session if it exists
+		const bg = this.activeSessions.get(sessionId);
+		if (bg) {
+			for (const unsub of bg.unsubscribers) unsub();
+			try { await bg.session.destroy(); } catch { /* ignore */ }
+			if (bg.streamingComponent) {
+				try { this.removeChild(bg.streamingComponent); } catch { /* ignore */ }
+			}
+			this.activeSessions.delete(sessionId);
+		}
+
 		try {
 			await this.plugin.copilot!.deleteSession(sessionId);
 		} catch (e) {
@@ -1378,6 +1685,219 @@ export class SidekickView extends ItemView {
 		if (days === 1) return 'Yesterday';
 		if (days < 7) return `${days}d ago`;
 		return d.toLocaleDateString();
+	}
+
+	// ── Trigger scheduler ───────────────────────────────────────
+
+	/**
+	 * Set up the trigger scheduler for cron-based and file-change-based triggers.
+	 * Called once during onOpen after configs are loaded.
+	 */
+	private initTriggerScheduler(): void {
+		this.triggerScheduler = new TriggerScheduler({
+			onTriggerFire: (trigger, context) => void this.fireTriggerInBackground(trigger, context),
+			getLastFired: (key) => this.plugin.settings.triggerLastFired?.[key] ?? 0,
+			setLastFired: (key, ts) => {
+				if (!this.plugin.settings.triggerLastFired) {
+					this.plugin.settings.triggerLastFired = {};
+				}
+				this.plugin.settings.triggerLastFired[key] = ts;
+				void this.plugin.saveSettings();
+			},
+		});
+		this.triggerScheduler.setTriggers(this.triggers);
+		console.log(`Sidekick: trigger scheduler initialized with ${this.triggers.length} trigger(s)`,
+			this.triggers.map(t => ({name: t.name, entries: t.triggers.map(e => ({type: e.type, cron: e.cron, glob: e.glob}))})));
+		const intervalId = this.triggerScheduler.start();
+		this.registerInterval(intervalId);
+
+		// File change events for onFileChange triggers
+		const sidekickFolder = normalizePath(this.plugin.settings.sidekickFolder);
+		this.registerEvent(
+			this.app.vault.on('modify', (file) => {
+				if (!(file instanceof TFile)) return;
+				if (file.path.startsWith(sidekickFolder + '/') || file.path.startsWith('.sidekick-attachments/')) {
+					console.debug(`Sidekick: ignoring modify in excluded folder: ${file.path}`);
+					return;
+				}
+				console.debug(`Sidekick: vault modify event: ${file.path}`);
+				this.triggerScheduler?.checkFileChangeTriggers(file.path);
+			})
+		);
+		this.registerEvent(
+			this.app.vault.on('create', (file) => {
+				if (!(file instanceof TFile)) return;
+				if (file.path.startsWith(sidekickFolder + '/') || file.path.startsWith('.sidekick-attachments/')) return;
+				console.debug(`Sidekick: vault create event: ${file.path}`);
+				this.triggerScheduler?.checkFileChangeTriggers(file.path);
+			})
+		);
+		this.registerEvent(
+			this.app.vault.on('rename', (file, oldPath) => {
+				if (!(file instanceof TFile)) return;
+				if (file.path.startsWith(sidekickFolder + '/') || file.path.startsWith('.sidekick-attachments/')) return;
+				console.debug(`Sidekick: vault rename event: ${oldPath} → ${file.path}`);
+				this.triggerScheduler?.checkFileChangeTriggers(file.path);
+			})
+		);
+	}
+
+	/**
+	 * Fire a trigger as a background session.
+	 * Creates a new SDK session with the trigger's agent, names it "Trigger: <description>",
+	 * sends the trigger content as the user prompt, and routes all events to a BackgroundSession.
+	 */
+	private async fireTriggerInBackground(trigger: TriggerConfig, context?: TriggerFireContext): Promise<void> {
+		if (!this.plugin.copilot) {
+			console.warn('Sidekick: trigger skipped — Copilot not available', trigger.name);
+			return;
+		}
+
+		try {
+			// Resolve agent and model
+			const agent = trigger.agent ? this.agents.find(a => a.name === trigger.agent) : undefined;
+			let model = this.selectedModel || undefined;
+			if (agent?.model) {
+				const target = agent.model.toLowerCase();
+				let modelMatch = this.models.find(
+					m => m.name.toLowerCase() === target || m.id.toLowerCase() === target
+				);
+				if (!modelMatch) {
+					modelMatch = this.models.find(
+						m => m.id.toLowerCase().includes(target) || m.name.toLowerCase().includes(target)
+					);
+				}
+				if (modelMatch) model = modelMatch.id;
+			}
+
+			// System message from agent instructions
+			let systemContent = '';
+			if (agent?.instructions) systemContent = agent.instructions;
+
+			// MCP servers (same as current UI selection)
+			const mcpServers: Record<string, MCPServerConfig> = {};
+			for (const server of this.mcpServers) {
+				if (!this.enabledMcpServers.has(server.name)) continue;
+				const cfg = server.config;
+				const serverType = cfg['type'] as string | undefined;
+				const tools = (cfg['tools'] as string[] | undefined) ?? ['*'];
+				if (serverType === 'http' || serverType === 'sse') {
+					mcpServers[server.name] = {
+						type: serverType,
+						url: cfg['url'] as string,
+						tools,
+						...(cfg['headers'] ? {headers: cfg['headers'] as Record<string, string>} : {}),
+						...(cfg['timeout'] != null ? {timeout: cfg['timeout'] as number} : {}),
+					} as MCPServerConfig;
+				} else if (cfg['command']) {
+					mcpServers[server.name] = {
+						type: 'local',
+						command: cfg['command'] as string,
+						args: (cfg['args'] as string[] | undefined) ?? [],
+						tools,
+						...(cfg['env'] ? {env: cfg['env'] as Record<string, string>} : {}),
+						...(cfg['cwd'] ? {cwd: cfg['cwd'] as string} : {}),
+						...(cfg['timeout'] != null ? {timeout: cfg['timeout'] as number} : {}),
+					} as MCPServerConfig;
+				}
+			}
+
+			// Skills
+			const basePath = this.getVaultBasePath();
+			const skillDirs: string[] = [];
+			if (this.skills.length > 0) {
+				skillDirs.push(basePath + '/' + getSkillsFolder(this.plugin.settings));
+			}
+			const disabledSkills = this.skills
+				.filter(s => !this.enabledSkills.has(s.name))
+				.map(s => s.name);
+
+			// Permission handler
+			const permissionHandler = (request: PermissionRequest) => {
+				if (this.plugin.settings.toolApproval === 'allow') {
+					return approveAll(request, {sessionId: ''});
+				}
+				const modal = new ToolApprovalModal(this.app, request);
+				modal.open();
+				return modal.promise;
+			};
+
+			const sessionConfig: SessionConfig = {
+				model,
+				streaming: true,
+				onPermissionRequest: permissionHandler,
+				workingDirectory: this.getWorkingDirectory(),
+				...(Object.keys(mcpServers).length > 0 ? {mcpServers} : {}),
+				...(skillDirs.length > 0 ? {skillDirectories: skillDirs} : {}),
+				...(disabledSkills.length > 0 ? {disabledSkills} : {}),
+				...(systemContent ? {systemMessage: {mode: 'append' as const, content: systemContent}} : {}),
+			};
+
+			const session = await this.plugin.copilot.createSession(sessionConfig);
+			const sessionId = session.sessionId;
+
+			// Name the session: <agent>: <content truncated> [trigger]
+			const agentName = trigger.agent || 'Chat';
+			const truncatedContent = trigger.content.length > 40 ? trigger.content.slice(0, 40) + '…' : trigger.content;
+			const sessionName = `${agentName}: ${truncatedContent} [trigger]`;
+			this.sessionNames[sessionId] = sessionName;
+			this.saveSessionNames();
+
+			// Build prompt (augment with file path for file-change triggers)
+			let prompt = trigger.content;
+			if (context?.filePath) {
+				prompt = `[File changed: ${context.filePath}]\n\n${trigger.content}`;
+			}
+
+			// Create background session
+			const bg: BackgroundSession = {
+				sessionId,
+				session,
+				messages: [{
+					id: `u-${Date.now()}`,
+					role: 'user',
+					content: prompt,
+					timestamp: Date.now(),
+				}],
+				isStreaming: true,
+				streamingContent: '',
+				savedDom: null,
+				unsubscribers: [],
+				turnStartTime: Date.now(),
+				turnToolsUsed: [],
+				turnSkillsUsed: [],
+				turnUsage: null,
+				activeToolCalls: new Map(),
+				streamingComponent: null,
+				streamingBodyEl: null,
+				streamingWrapperEl: null,
+				toolCallsContainer: null,
+			};
+
+			this.registerBackgroundEvents(bg);
+			this.activeSessions.set(sessionId, bg);
+
+			// Add to session list
+			const now = new Date();
+			if (!this.sessionList.some(s => s.sessionId === sessionId)) {
+				this.sessionList.unshift({
+					sessionId,
+					startTime: now,
+					modifiedTime: now,
+					isRemote: false,
+				} as SessionMetadata);
+			}
+			this.renderSessionList();
+
+			// Send the trigger content
+			console.log(`Sidekick: firing trigger "${trigger.name}"`, {prompt: prompt.slice(0, 200)});
+			await session.send({prompt});
+
+			new Notice(`Trigger fired: ${trigger.description || trigger.name}`);
+		} catch (e) {
+			console.error('Sidekick: trigger failed', trigger.name, e);
+			new Notice(`Trigger failed: ${trigger.description || trigger.name} — ${String(e)}`);
+		}
 	}
 
 	// ── Message rendering ────────────────────────────────────────
@@ -2074,17 +2594,45 @@ export class SidekickView extends ItemView {
 		}
 	}
 
-	private async newConversation(): Promise<void> {
+	/** Destroy all sessions — current and background. Used on plugin close. */
+	private async destroyAllSessions(): Promise<void> {
 		await this.destroySession();
+		for (const [, bg] of this.activeSessions) {
+			for (const unsub of bg.unsubscribers) unsub();
+			try { await bg.session.destroy(); } catch { /* ignore */ }
+			if (bg.streamingComponent) {
+				try { this.removeChild(bg.streamingComponent); } catch { /* ignore */ }
+			}
+		}
+		this.activeSessions.clear();
+	}
+
+	private async newConversation(): Promise<void> {
+		// Save the current session to background instead of destroying it
+		if (this.currentSession && this.currentSessionId) {
+			this.saveCurrentToBackground();
+		} else {
+			// No active session handle, just clean up
+			this.unsubscribeEvents();
+			this.currentSession = null;
+		}
 		this.currentSessionId = null;
 		this.messages = [];
 		this.streamingContent = '';
 		this.streamingBodyEl = null;
+		this.streamingWrapperEl = null;
+		this.toolCallsContainer = null;
+		this.activeToolCalls.clear();
+		if (this.streamingComponent) {
+			this.removeChild(this.streamingComponent);
+			this.streamingComponent = null;
+		}
 		this.isStreaming = false;
 		this.configDirty = true;
 		this.attachments = [];
 		this.scopePaths = [];
 		this.activePrompt = null;
+		this.chatContainer.empty();
 		this.renderWelcome();
 		this.renderAttachments();
 		this.renderScopeBar();

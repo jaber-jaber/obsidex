@@ -3,7 +3,10 @@ export interface AgentConfig {
 	name: string;
 	description: string;
 	model?: string;
-	tools?: string;
+	/** List of MCP tool server names to enable. Empty/undefined = all. */
+	tools?: string[];
+	/** List of skill names to enable. Empty/undefined = all. */
+	skills?: string[];
 	instructions: string;
 	filePath: string;
 }
@@ -52,4 +55,21 @@ export interface ChatAttachment {
 	content?: string;
 	/** When true, `path` is an absolute OS path (not vault-relative). */
 	absolutePath?: boolean;
+}
+
+/** A single trigger definition within a trigger file. */
+export interface TriggerEntry {
+	type: string;
+	cron?: string;
+	glob?: string;
+}
+
+/** Parsed trigger configuration from *.trigger.md. */
+export interface TriggerConfig {
+	name: string;
+	description?: string;
+	agent?: string;
+	triggers: TriggerEntry[];
+	/** Prompt content to send when the trigger fires. */
+	content: string;
 }

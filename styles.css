@@ -1013,11 +1013,13 @@ body.sidekick-no-select {
 .sidekick-session-icon svg {
 	width: 16px;
 	height: 16px;
-	color: var(--text-muted);
+	color: var(--text-faint);
+	opacity: 0.45;
 }
 
 .sidekick-session-item.is-active .sidekick-session-icon svg {
 	color: var(--interactive-accent);
+	opacity: 1;
 }
 
 .sidekick-session-active-dot {

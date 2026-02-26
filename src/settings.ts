@@ -10,6 +10,8 @@ export interface SidekickSettings {
 	toolApproval: 'ask' | 'allow';
 	/** Custom display names for sessions, keyed by SDK sessionId. */
 	sessionNames?: Record<string, string>;
+	/** Last-fired timestamps for trigger deduplication, keyed by trigger name. */
+	triggerLastFired?: Record<string, number>;
 }
 
 export const DEFAULT_SETTINGS: SidekickSettings = {
@@ -38,6 +40,11 @@ export function getPromptsFolder(settings: SidekickSettings): string {
 	return normalizePath(`${settings.sidekickFolder}/prompts`);
 }
 
+/** Derive the triggers subfolder from the base Sidekick folder. */
+export function getTriggersFolder(settings: SidekickSettings): string {
+	return normalizePath(`${settings.sidekickFolder}/triggers`);
+}
+
 const SAMPLE_SKILL_CONTENT = `---
 name: ascii-art
 description: Generates stylized ASCII art text using block characters
@@ -55,7 +62,10 @@ When a user requests ASCII art for any word or phrase, generate the block-style 
 const SAMPLE_AGENT_CONTENT = `---
 name: Grammar
 description: The Grammar Assistant agent helps users improve their writing
-tools: 
+tools:
+  - github
+skills:
+  - ascii-art
 model: Claude Sonnet 4.5
 ---
 
@@ -68,6 +78,18 @@ const SAMPLE_PROMPT_CONTENT = `---
 agent: Grammar
 ---
 Translate the provided text from English to Portuguese.
+`;
+
+const SAMPLE_TRIGGER_CONTENT = `---
+description: Daily planner
+agent: Planner
+triggers:
+  - type: scheduler 
+    cron: "0 8 * * *"
+  - type: onFileChange
+    glob: "**/*.md"
+---
+Help me prepare my day, including asks on me, recommendations for clear actions to prepare, and suggestions on which items to prioritize over others.
 `;
 
 export class SidekickSettingTab extends PluginSettingTab {
@@ -131,7 +153,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 						const adapter = this.app.vault.adapter;
 
 						// Create base folder and subfolders
-						for (const sub of ['', '/agents', '/skills', '/skills/ascii-art', '/tools', '/prompts']) {
+						for (const sub of ['', '/agents', '/skills', '/skills/ascii-art', '/tools', '/prompts', '/triggers']) {
 							const dir = normalizePath(`${base}${sub}`);
 							if (!(await adapter.exists(dir))) {
 								await this.app.vault.createFolder(dir);
@@ -170,7 +192,13 @@ export class SidekickSettingTab extends PluginSettingTab {
 							await this.app.vault.create(promptPath, SAMPLE_PROMPT_CONTENT);
 						}
 
-						new Notice('Sidekick folder initialized with sample agent, skill, prompt, and mcp.json.');
+						// Sample trigger
+						const triggerPath = normalizePath(`${base}/triggers/daily-planner.trigger.md`);
+						if (!(await adapter.exists(triggerPath))) {
+							await this.app.vault.create(triggerPath, SAMPLE_TRIGGER_CONTENT);
+						}
+
+						new Notice('Sidekick folder initialized with sample agent, skill, prompt, trigger, and mcp.json.');
 					} catch (e) {
 						new Notice(`Failed to initialize Sidekick folder: ${String(e)}`);
 					}
