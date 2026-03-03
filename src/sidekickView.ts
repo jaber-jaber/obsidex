@@ -620,7 +620,7 @@ export class SidekickView extends ItemView {
 		this.debugBtnEl = toolbar.createDiv({cls: 'sidekick-debug-toggle', attr: {title: 'Show tool & token details'}});
 		const debugIcon = this.debugBtnEl.createSpan({cls: 'sidekick-debug-icon clickable-icon'});
 		setIcon(debugIcon, 'bug');
-		const debugCheck = this.debugBtnEl.createEl('input', {type: 'checkbox', cls: 'sidekick-debug-checkbox'}) as HTMLInputElement;
+		const debugCheck = this.debugBtnEl.createEl('input', {type: 'checkbox', cls: 'sidekick-debug-checkbox'});
 		debugCheck.checked = this.showDebugInfo;
 		debugCheck.addEventListener('change', () => {
 			this.showDebugInfo = debugCheck.checked;
@@ -990,7 +990,7 @@ export class SidekickView extends ItemView {
 			// Resolve absolute OS path: prefer Electron webUtils, fallback to File.path
 			let getPath: (f: File) => string;
 			try {
-				const {webUtils} = (globalThis.require as NodeJS.Require)('electron') as {webUtils?: {getPathForFile: (f: File) => string}};
+				const {webUtils} = globalThis.require('electron') as {webUtils?: {getPathForFile: (f: File) => string}};
 				if (webUtils?.getPathForFile) {
 					getPath = (f: File) => webUtils.getPathForFile(f);
 				} else {
@@ -2153,7 +2153,7 @@ export class SidekickView extends ItemView {
 					}
 				} else if (att.absolutePath && att.path) {
 					// External OS file: open with default OS application
-					chip.setAttribute('title', 'Open with OS default application');
+					chip.setAttribute('title', 'Open with os default application');
 					chip.addEventListener('click', () => {
 						try {
 							const filePath = att.path!;
@@ -2162,7 +2162,7 @@ export class SidekickView extends ItemView {
 								new Notice('Cannot open file: path contains directory traversal.');
 								return;
 							}
-							const {shell} = (globalThis.require as NodeJS.Require)('electron') as {shell: {openPath: (p: string) => Promise<string>}};
+							const {shell} = globalThis.require('electron') as {shell: {openPath: (p: string) => Promise<string>}};
 							void shell.openPath(filePath);
 						} catch (e) {
 							new Notice(`Failed to open file: ${String(e)}`);
@@ -2170,7 +2170,7 @@ export class SidekickView extends ItemView {
 					});
 				} else if (att.type === 'image' && att.path) {
 					// Pasted image in vault: open with OS image viewer
-					chip.setAttribute('title', 'Open with OS image viewer');
+					chip.setAttribute('title', 'Open with os image viewer');
 					chip.addEventListener('click', () => {
 						try {
 							const vaultPath = normalizePath(att.path!);
@@ -2179,7 +2179,7 @@ export class SidekickView extends ItemView {
 								new Notice('Cannot open image: path escapes the vault.');
 								return;
 							}
-							const {shell} = (globalThis.require as NodeJS.Require)('electron') as {shell: {openPath: (p: string) => Promise<string>}};
+							const {shell} = globalThis.require('electron') as {shell: {openPath: (p: string) => Promise<string>}};
 							const absPath = this.getVaultBasePath() + '/' + vaultPath;
 							void shell.openPath(absPath);
 						} catch (e) {
@@ -2581,7 +2581,7 @@ export class SidekickView extends ItemView {
 
 		// Auto-select agent from prompt if specified
 		if (usedPrompt?.agent) {
-			const matchingAgent = this.agents.find(a => a.name === usedPrompt!.agent);
+			const matchingAgent = this.agents.find(a => a.name === usedPrompt.agent);
 			if (matchingAgent) {
 				this.selectedAgent = matchingAgent.name;
 				this.agentSelect.value = matchingAgent.name;

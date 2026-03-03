@@ -229,7 +229,7 @@ function showNewNoteModal(plugin: SidekickPlugin, folder: TFolder): void {
 
 	const tc = new TextComponent(modal.contentEl);
 	tc.inputEl.classList.add('sidekick-modal-text-input');
-	tc.setPlaceholder('e.g. daily notes, meeting notes, project brief');
+	tc.setPlaceholder('Ex: daily notes, meeting notes, project brief');
 
 	const btnRow = modal.contentEl.createDiv({cls: 'modal-button-container'});
 	const goBtn = btnRow.createEl('button', {text: 'Create', cls: 'mod-cta'});
@@ -618,7 +618,7 @@ export function showEditNoteModal(plugin: SidekickPlugin, view: EditorView): voi
 
 	const tc = new TextComponent(modal.contentEl);
 	tc.inputEl.classList.add('sidekick-modal-text-input');
-	tc.setPlaceholder('e.g. Convert bullet points to a table');
+	tc.setPlaceholder('Ex: convert bullet points to a table');
 
 	const btnRow = modal.contentEl.createDiv({cls: 'modal-button-container'});
 	const goBtn = btnRow.createEl('button', {text: 'Apply', cls: 'mod-cta'});
@@ -680,7 +680,7 @@ export function showStructureModal(plugin: SidekickPlugin, view: EditorView): vo
 
 	const tc = new TextComponent(modal.contentEl);
 	tc.inputEl.classList.add('sidekick-modal-text-input');
-	tc.setPlaceholder('e.g. daily notes, meeting notes, project brief');
+	tc.setPlaceholder('Ex: daily notes, meeting notes, project brief');
 
 	const btnRow = modal.contentEl.createDiv({cls: 'modal-button-container'});
 	const goBtn = btnRow.createEl('button', {text: 'Structure', cls: 'mod-cta'});
@@ -700,7 +700,7 @@ export function showStructureModal(plugin: SidekickPlugin, view: EditorView): vo
 async function applyStructure(plugin: SidekickPlugin, view: EditorView, templateType: string): Promise<void> {
 	if (!plugin.copilot) { new Notice('Copilot is not configured.'); return; }
 	const doc = view.state.doc.toString();
-	const notice = new Notice('Sidekick: Structuring note…', 0);
+	const notice = new Notice('Sidekick: structuring note…', 0);
 	view.dispatch({effects: setFetching.of(true)});
 
 	const templateClause = templateType

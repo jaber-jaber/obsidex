@@ -17,7 +17,7 @@ export default class SidekickPlugin extends Plugin {
 		this.registerView(SIDEKICK_VIEW_TYPE, (leaf) => new SidekickView(leaf, this));
 
 		// Ribbon icon to open view
-		this.addRibbonIcon('brain', 'Open Sidekick', () => void this.activateView());
+		this.addRibbonIcon('brain', 'Open sidekick', () => void this.activateView());
 
 		// Command to open view
 		this.addCommand({

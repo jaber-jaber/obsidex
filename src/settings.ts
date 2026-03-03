@@ -158,7 +158,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 					.setName('URL')
 					.setDesc('URL of existing CLI server to connect to.')
 					.addText(text => text
-						.setPlaceholder('e.g. localhost:8080')
+						.setPlaceholder('Ex: localhost:8080')
 						.setValue(this.plugin.settings.cliUrl)
 						.onChange(async (value) => {
 							this.plugin.settings.cliUrl = value.trim();
@@ -172,7 +172,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 					.addText(text => {
 						text.inputEl.type = 'password';
 						text.inputEl.autocomplete = 'off';
-						text.setPlaceholder('ghp_…')
+						text.setPlaceholder('')
 							.setValue(this.plugin.settings.githubToken)
 							.onChange(async (value) => {
 								this.plugin.settings.githubToken = value.trim();
@@ -183,7 +183,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 			} else {
 				new Setting(clientFieldsEl)
 					.setName('Path')
-					.setDesc('Path to CLI executable (default: "copilot" from PATH).')
+					.setDesc('Path to copilot executable.')
 					.addText(text => text
 						.setPlaceholder('Leave blank for default')
 						.setValue(this.plugin.settings.copilotLocation)
@@ -217,7 +217,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 						.addText(text => {
 							text.inputEl.type = 'password';
 							text.inputEl.autocomplete = 'off';
-							text.setPlaceholder('ghp_…')
+							text.setPlaceholder('')
 								.setValue(this.plugin.settings.githubToken)
 								.onChange(async (value) => {
 									this.plugin.settings.githubToken = value.trim();
@@ -230,7 +230,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 		};
 
 		new Setting(containerEl)
-			.setName('GitHub Copilot client')
+			.setName('Copilot client')
 			.setHeading()
 			.addDropdown(dropdown => dropdown
 				.addOptions({local: 'Local CLI', remote: 'Remote CLI'})
@@ -298,9 +298,9 @@ export class SidekickSettingTab extends PluginSettingTab {
 
 				new Setting(providerFieldsEl)
 					.setName('Model name')
-					.setDesc('Model ID to use (e.g. gpt-4o, claude-sonnet-4).')
+					.setDesc('Ex: gpt-4o, claude-sonnet-4, etc.')
 					.addText(text => text
-						.setPlaceholder('model-id')
+						.setPlaceholder('')
 						.setValue(this.plugin.settings.providerModel)
 						.onChange(async (value) => {
 							this.plugin.settings.providerModel = value.trim();
@@ -310,10 +310,10 @@ export class SidekickSettingTab extends PluginSettingTab {
 
 				new Setting(providerFieldsEl)
 					.setName('API key')
-					.setDesc('Sent as x-api-key header (optional).')
+					.setDesc('Sent as optional header.')
 					.addText(text => {
 						text.inputEl.type = 'password';
-						text.setPlaceholder('sk-…')
+						text.setPlaceholder('')
 							.setValue(this.plugin.settings.providerApiKey)
 							.onChange(async (value) => {
 								this.plugin.settings.providerApiKey = value.trim();
@@ -323,10 +323,10 @@ export class SidekickSettingTab extends PluginSettingTab {
 
 				new Setting(providerFieldsEl)
 					.setName('Bearer token')
-					.setDesc('Authorization header token (optional).')
+					.setDesc('Authorization optional token header.')
 					.addText(text => {
 						text.inputEl.type = 'password';
-						text.setPlaceholder('token')
+						text.setPlaceholder('')
 							.setValue(this.plugin.settings.providerBearerToken)
 							.onChange(async (value) => {
 								this.plugin.settings.providerBearerToken = value.trim();
@@ -491,7 +491,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 			.setName('Sidekick folder')
 			.setDesc('Vault folder for agents, skills, tools and triggers.')
 			.addText(text => text
-				.setPlaceholder('e.g. sidekick')
+				.setPlaceholder('Ex: sidekick')
 				.setValue(this.plugin.settings.sidekickFolder)
 				.onChange(async (value) => {
 					const sanitized = value.trim().replace(/\.\./g, '');
