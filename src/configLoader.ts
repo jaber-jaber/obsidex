@@ -141,10 +141,11 @@ export async function loadPrompts(app: App, promptsFolder: string): Promise<Prom
 export async function loadMcpServers(app: App, toolsFolder: string): Promise<McpServerEntry[]> {
 	const mcpPath = normalizePath(`${toolsFolder}/mcp.json`);
 	const entries: McpServerEntry[] = [];
-	if (!(await app.vault.adapter.exists(mcpPath))) return entries;
+	const mcpFile = app.vault.getAbstractFileByPath(mcpPath);
+	if (!mcpFile || !(mcpFile instanceof TFile)) return entries;
 
 	try {
-		const content = await app.vault.adapter.read(mcpPath);
+		const content = await app.vault.read(mcpFile);
 		const parsed = JSON.parse(content) as Record<string, unknown>;
 		if (!parsed || typeof parsed !== 'object') return entries;
 

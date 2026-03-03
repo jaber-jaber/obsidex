@@ -230,10 +230,9 @@ function showNewNoteModal(plugin: SidekickPlugin, folder: TFolder): void {
 		text: 'Optionally specify a template type for the note:',
 		cls: 'sidekick-menu-modal-desc',
 	});
-	desc.style.marginBottom = '8px';
 
 	const tc = new TextComponent(modal.contentEl);
-	tc.inputEl.style.width = '100%';
+	tc.inputEl.classList.add('sidekick-modal-text-input');
 	tc.setPlaceholder('e.g. Daily notes, Meeting notes, Project brief');
 
 	const btnRow = modal.contentEl.createDiv({cls: 'modal-button-container'});
@@ -622,10 +621,9 @@ export function showEditNoteModal(plugin: SidekickPlugin, view: EditorView): voi
 		text: 'Describe how the note should be edited:',
 		cls: 'sidekick-menu-modal-desc',
 	});
-	desc.style.marginBottom = '8px';
 
 	const tc = new TextComponent(modal.contentEl);
-	tc.inputEl.style.width = '100%';
+	tc.inputEl.classList.add('sidekick-modal-text-input');
 	tc.setPlaceholder('e.g. Convert bullet points to a table');
 
 	const btnRow = modal.contentEl.createDiv({cls: 'modal-button-container'});
@@ -683,15 +681,11 @@ export function showStructureModal(plugin: SidekickPlugin, view: EditorView): vo
 		text: 'The note will be restructured using Markdown and refined for clarity.',
 		cls: 'sidekick-menu-modal-desc',
 	});
-	desc.style.marginBottom = '8px';
 
-	const label = modal.contentEl.createEl('label', {text: 'Template type (optional):'});
-	label.style.display = 'block';
-	label.style.marginBottom = '4px';
-	label.style.fontSize = 'var(--font-ui-small)';
+	const label = modal.contentEl.createEl('label', {text: 'Template type (optional):', cls: 'sidekick-modal-label'});
 
 	const tc = new TextComponent(modal.contentEl);
-	tc.inputEl.style.width = '100%';
+	tc.inputEl.classList.add('sidekick-modal-text-input');
 	tc.setPlaceholder('e.g. Daily notes, Meeting notes, Project brief');
 
 	const btnRow = modal.contentEl.createDiv({cls: 'modal-button-container'});

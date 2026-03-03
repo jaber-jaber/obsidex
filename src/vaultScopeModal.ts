@@ -72,7 +72,6 @@ export class VaultScopeModal extends Modal {
 
 		// Render the root node
 		const rootRow = this.listContainer.createDiv({cls: 'sidekick-scope-item'});
-		rootRow.style.paddingLeft = '8px';
 
 		const toggle = rootRow.createSpan({cls: 'sidekick-scope-toggle'});
 		setIcon(toggle, this.collapsed.has('/') ? 'chevron-right' : 'chevron-down');

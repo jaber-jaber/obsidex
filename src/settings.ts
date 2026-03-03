@@ -167,7 +167,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 						}));
 
 				new Setting(clientFieldsEl)
-					.setName('GitHub Token')
+					.setName('GitHub token')
 					.setDesc('GitHub token for authentication.')
 					.addText(text => {
 						text.inputEl.type = 'password';
@@ -199,7 +199,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 						}));
 
 				new Setting(clientFieldsEl)
-					.setName('Use Logged\u2011in User')
+					.setName('Use logged\u2011in user')
 					.setDesc('Whether to use logged-in user for authentication.')
 					.addToggle(toggle => toggle
 						.setValue(this.plugin.settings.useLoggedInUser)
@@ -212,7 +212,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 
 				if (!this.plugin.settings.useLoggedInUser) {
 					new Setting(clientFieldsEl)
-						.setName('GitHub Token')
+						.setName('GitHub token')
 						.setDesc('GitHub token for authentication.')
 						.addText(text => {
 							text.inputEl.type = 'password';
@@ -230,7 +230,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 		};
 
 		new Setting(containerEl)
-			.setName('GitHub Copilot Client')
+			.setName('GitHub Copilot client')
 			.setHeading()
 			.addDropdown(dropdown => dropdown
 				.addOptions({local: 'Local CLI', remote: 'Remote CLI'})
@@ -469,7 +469,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 		};
 
 		// --- Sidekick settings section ---
-		new Setting(containerEl).setName('Sidekick settings').setHeading();
+		new Setting(containerEl).setName('General').setHeading();
 
 		new Setting(containerEl)
 			.setName('Inline operations model')
@@ -507,31 +507,30 @@ export class SidekickSettingTab extends PluginSettingTab {
 				.onClick(async () => {
 					try {
 						const base = normalizePath(this.plugin.settings.sidekickFolder);
-						const adapter = this.app.vault.adapter;
 
 						// Create base folder and subfolders
 						for (const sub of ['', '/agents', '/skills', '/skills/ascii-art', '/tools', '/prompts', '/triggers']) {
 							const dir = normalizePath(`${base}${sub}`);
-							if (!(await adapter.exists(dir))) {
+							if (!this.app.vault.getAbstractFileByPath(dir)) {
 								await this.app.vault.createFolder(dir);
 							}
 						}
 
 						// Sample agent
 						const agentPath = normalizePath(`${base}/agents/grammar.agent.md`);
-						if (!(await adapter.exists(agentPath))) {
+						if (!this.app.vault.getAbstractFileByPath(agentPath)) {
 							await this.app.vault.create(agentPath, SAMPLE_AGENT_CONTENT);
 						}
 
 						// Sample skill
 						const skillPath = normalizePath(`${base}/skills/ascii-art/SKILL.md`);
-						if (!(await adapter.exists(skillPath))) {
+						if (!this.app.vault.getAbstractFileByPath(skillPath)) {
 							await this.app.vault.create(skillPath, SAMPLE_SKILL_CONTENT);
 						}
 
 						// Sample mcp.json
 						const mcpPath = normalizePath(`${base}/tools/mcp.json`);
-						if (!(await adapter.exists(mcpPath))) {
+						if (!this.app.vault.getAbstractFileByPath(mcpPath)) {
 							const mcpContent = JSON.stringify({
 								servers: {
 									github: {
@@ -545,13 +544,13 @@ export class SidekickSettingTab extends PluginSettingTab {
 
 						// Sample prompt
 						const promptPath = normalizePath(`${base}/prompts/en-to-pt.prompt.md`);
-						if (!(await adapter.exists(promptPath))) {
+						if (!this.app.vault.getAbstractFileByPath(promptPath)) {
 							await this.app.vault.create(promptPath, SAMPLE_PROMPT_CONTENT);
 						}
 
 						// Sample trigger
 						const triggerPath = normalizePath(`${base}/triggers/daily-planner.trigger.md`);
-						if (!(await adapter.exists(triggerPath))) {
+						if (!this.app.vault.getAbstractFileByPath(triggerPath)) {
 							await this.app.vault.create(triggerPath, SAMPLE_TRIGGER_CONTENT);
 						}
 

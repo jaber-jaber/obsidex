@@ -46,8 +46,8 @@ export default class SidekickPlugin extends Plugin {
 		if (this.copilot) {
 			try {
 				await this.copilot.stop();
-			} catch (e) {
-				console.warn('Sidekick: error stopping previous Copilot service', e);
+			} catch {
+				// ignore stop errors
 			}
 			this.copilot = null;
 		}

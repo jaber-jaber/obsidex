@@ -1,7 +1,4 @@
 import {CopilotClient, CopilotSession, approveAll} from '@github/copilot-sdk';
-import {access} from 'node:fs/promises';
-import {join} from 'node:path';
-import {homedir} from 'node:os';
 import type {
 	ConnectionState,
 	CustomAgentConfig,
@@ -37,6 +34,9 @@ declare const process: {
  * Falls back to the JS entry point if the native binary is not found.
  */
 async function resolveDefaultCliPath(): Promise<string> {
+	// Lazy-load Node.js builtins so the module can be imported on mobile
+	const {join} = require('node:path') as {join: (...args: string[]) => string};
+	const {access} = require('node:fs/promises') as {access: (path: string) => Promise<void>};
 	const nativePkg = `@github/copilot-${process.platform}-${process.arch}`;
 	const ext = process.platform === 'win32' ? '.exe' : '';
 	const nativeBin = join(__dirname, 'node_modules', nativePkg, `copilot${ext}`);
@@ -111,6 +111,7 @@ export class CopilotService {
 		}
 		// Local mode — spawn CLI process
 		const cliPath = this.cliPath || await resolveDefaultCliPath();
+		const {homedir} = require('node:os') as {homedir: () => string};
 		return new CopilotClient({
 			cliPath: cliPath,
 			cwd: homedir(),

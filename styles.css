@@ -605,6 +605,7 @@
 	display: flex;
 	align-items: center;
 	gap: 3px;
+	cursor: pointer;
 }
 
 .sidekick-scope-label svg {
@@ -1141,16 +1142,6 @@ body.sidekick-no-select {
 	line-height: 1.3;
 }
 
-.sidekick-rename-input {
-	width: 100%;
-	padding: 6px 10px;
-	font-size: var(--font-ui-small);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	background: var(--background-primary);
-	color: var(--text-normal);
-}
-
 /* ── Prompt dropdown ─────────────────────────────────────────── */
 
 .sidekick-prompt-dropdown {
@@ -1205,4 +1196,42 @@ body.sidekick-no-select {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	min-width: 0;
+}
+
+/* ── Utility: hidden elements in sidebar when collapsed ───────── */
+
+.sidekick-sidebar .is-hidden {
+	display: none;
+}
+
+/* ── Modal helper classes ─────────────────────────────────────── */
+
+.sidekick-menu-modal-desc {
+	margin-bottom: 8px;
+}
+
+.sidekick-modal-text-input {
+	width: 100%;
+}
+
+.sidekick-modal-label {
+	display: block;
+	margin-bottom: 4px;
+	font-size: var(--font-ui-small);
+}
+
+.sidekick-rename-input {
+	width: 100%;
+	margin-bottom: 12px;
+	padding: 6px 10px;
+	font-size: var(--font-ui-small);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+
+/* Hidden file input for attach button */
+.sidekick-file-input-hidden {
+	display: none;
 }

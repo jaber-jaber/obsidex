@@ -115,7 +115,6 @@ class FolderTreeModal extends Modal {
 
 		// Root node
 		const rootRow = this.listContainer.createDiv({cls: 'sidekick-scope-item'});
-		rootRow.style.paddingLeft = '8px';
 		if (this.currentPath === '') rootRow.addClass('is-active');
 
 		const toggle = rootRow.createSpan({cls: 'sidekick-scope-toggle'});
@@ -671,8 +670,8 @@ export class SidekickView extends ItemView {
 				} else if (this.plugin.copilot) {
 					try {
 						this.models = await this.plugin.copilot.listModels();
-					} catch (e) {
-						console.warn('Sidekick: failed to load models', e);
+					} catch {
+						// silently ignore — models list stays empty
 					}
 				}
 			}
@@ -926,7 +925,7 @@ export class SidekickView extends ItemView {
 			? ' Entire vault scope'
 			: ` ${this.scopePaths.length} item(s) in scope`;
 		label.appendText(scopeText);
-		label.style.cursor = 'pointer';
+
 		const tooltipItems = this.scopePaths.map(p => p === '/' ? this.app.vault.getName() : p).join('\n');
 		label.setAttribute('title', tooltipItems);
 		label.addEventListener('click', (e) => {
@@ -982,7 +981,7 @@ export class SidekickView extends ItemView {
 		const input = document.createElement('input');
 		input.type = 'file';
 		input.multiple = true;
-		input.style.display = 'none';
+		input.classList.add('sidekick-file-input-hidden');
 		document.body.appendChild(input);
 
 		input.addEventListener('change', () => {
@@ -1007,7 +1006,6 @@ export class SidekickView extends ItemView {
 				if (!file) continue;
 				const filePath = getPath(file);
 				if (!filePath) {
-					console.warn('Sidekick: could not resolve OS path for', file.name);
 					continue;
 				}
 				debugLog('Sidekick: attached OS file', file.name, filePath);
@@ -1043,12 +1041,12 @@ export class SidekickView extends ItemView {
 			const name = `paste-${Date.now()}.${ext}`;
 			const folder = normalizePath('.sidekick-attachments');
 
-			if (!(await this.app.vault.adapter.exists(folder))) {
+			if (!this.app.vault.getAbstractFileByPath(folder)) {
 				await this.app.vault.createFolder(folder);
 			}
 
 			const filePath = normalizePath(`${folder}/${name}`);
-			await this.app.vault.adapter.writeBinary(filePath, buffer);
+			await this.app.vault.createBinary(filePath, buffer);
 
 			this.attachments.push({type: 'image', name, path: filePath});
 			this.renderAttachments();
@@ -1281,8 +1279,8 @@ export class SidekickView extends ItemView {
 			this.sessionList = await this.plugin.copilot.listSessions();
 			this.sortSessionList();
 			this.renderSessionList();
-		} catch (e) {
-			console.warn('Sidekick: failed to load sessions', e);
+		} catch {
+			// silently ignore — session list stays as-is
 		}
 	}
 
@@ -1319,16 +1317,16 @@ export class SidekickView extends ItemView {
 		const isExpanded = this.sidebarWidth > 80;
 		// Show/hide search and filter/sort/refresh when collapsed
 		if (this.sidebarSearchEl) {
-			this.sidebarSearchEl.style.display = isExpanded ? '' : 'none';
+			this.sidebarSearchEl.toggleClass('is-hidden', !isExpanded);
 		}
 		if (this.sidebarFilterEl) {
-			this.sidebarFilterEl.style.display = isExpanded ? '' : 'none';
+			this.sidebarFilterEl.toggleClass('is-hidden', !isExpanded);
 		}
 		if (this.sidebarSortEl) {
-			this.sidebarSortEl.style.display = isExpanded ? '' : 'none';
+			this.sidebarSortEl.toggleClass('is-hidden', !isExpanded);
 		}
 		if (this.sidebarRefreshEl) {
-			this.sidebarRefreshEl.style.display = isExpanded ? '' : 'none';
+			this.sidebarRefreshEl.toggleClass('is-hidden', !isExpanded);
 		}
 
 		for (const session of this.sessionList) {
@@ -1867,8 +1865,7 @@ export class SidekickView extends ItemView {
 			value: displayName,
 			cls: 'sidekick-rename-input',
 		});
-		input.style.width = '100%';
-		input.style.marginBottom = '12px';
+
 
 		const btnRow = modal.contentEl.createDiv({cls: 'sidekick-approval-buttons'});
 		const saveBtn = btnRow.createEl('button', {cls: 'mod-cta', text: 'Save'});
@@ -2013,7 +2010,6 @@ export class SidekickView extends ItemView {
 	 */
 	private async fireTriggerInBackground(trigger: TriggerConfig, context?: TriggerFireContext): Promise<void> {
 		if (!this.plugin.copilot) {
-			console.warn('Sidekick: trigger skipped — Copilot not available', trigger.name);
 			return;
 		}
 
@@ -2649,7 +2645,6 @@ export class SidekickView extends ItemView {
 			} catch (sendErr) {
 				// If the session is stale (e.g. SDK restarted), invalidate and retry once
 				if (String(sendErr).includes('Session not found')) {
-					console.warn('Sidekick: session stale, creating fresh session and retrying');
 					this.unsubscribeEvents();
 					this.currentSession = null;
 					this.currentSessionId = null;
