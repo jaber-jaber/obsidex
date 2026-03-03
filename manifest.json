@@ -6,5 +6,5 @@
 	"description": "Your Obsidian sidekick.",
 	"author": "",
 	"authorUrl": "",
-	"isDesktopOnly": true
+	"isDesktopOnly": false
 }

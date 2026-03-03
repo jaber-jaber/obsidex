@@ -4,8 +4,6 @@ Your AI-powered second brain inside Obsidian. Chat with agents, run tools, fire 
 
 Sidekick connects to GitHub Copilot — or your own AI provider — to give you a fully configurable AI assistant panel with agents, skills, MCP tool servers, prompt templates, triggers, and an editor context menu.
 
-> **Desktop only.** Requires either a GitHub Copilot subscription with the Copilot CLI, or a BYOK (Bring Your Own Key) provider such as OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint.
-
 ---
 
 ## Getting started
