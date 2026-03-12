@@ -239,7 +239,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 		if (!this.app.vault.getAbstractFileByPath(toolsFolder)) {
 			const warning = containerEl.createDiv({cls: 'sidekick-settings-warning'});
 			warning.createEl('p', {
-				text: 'Sidekick folder is not initialized. Go to the Capabilities tab to configure and initialize it.',
+				text: 'Sidekick folder is not initialized. Go to the capabilities tab to configure and initialize it.',
 			});
 		}
 
