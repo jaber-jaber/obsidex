@@ -204,13 +204,98 @@ export class SidekickSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 
 		containerEl.empty();
+		containerEl.addClass('sidekick-settings');
+
+		// ── Tab bar ──────────────────────────────────────────────
+		const tabBar = containerEl.createDiv({cls: 'sidekick-settings-tab-bar'});
+		const panels: Record<string, HTMLElement> = {};
+		const tabButtons: Record<string, HTMLElement> = {};
+		const tabIds = ['copilot', 'models', 'capabilities', 'tools'] as const;
+		const tabLabels: Record<string, string> = {
+			copilot: 'Copilot',
+			models: 'Models',
+			capabilities: 'Capabilities',
+			tools: 'Tools',
+		};
+
+		const switchSettingsTab = (id: string) => {
+			for (const tid of tabIds) {
+				panels[tid]?.toggleClass('is-hidden', tid !== id);
+				tabButtons[tid]?.toggleClass('is-active', tid === id);
+			}
+		};
+
+		for (const id of tabIds) {
+			const btn = tabBar.createEl('button', {
+				cls: 'sidekick-settings-tab',
+				text: tabLabels[id],
+			});
+			btn.addEventListener('click', () => switchSettingsTab(id));
+			tabButtons[id] = btn;
+		}
+
+		// ── Panels ───────────────────────────────────────────────
+		const toolsFolder = normalizePath(`${this.plugin.settings.sidekickFolder}/tools`);
+		if (!this.app.vault.getAbstractFileByPath(toolsFolder)) {
+			const warning = containerEl.createDiv({cls: 'sidekick-settings-warning'});
+			warning.createEl('p', {
+				text: 'Sidekick folder is not initialized. Go to the Capabilities tab to configure and initialize it.',
+			});
+		}
+
+		for (const id of tabIds) {
+			panels[id] = containerEl.createDiv({cls: `sidekick-settings-panel${id === 'copilot' ? '' : ' is-hidden'}`});
+		}
+		tabButtons['copilot']?.addClass('is-active');
 
 		// Hoisted so the Test button and Models section can both reference it
 		let refreshModels: () => Promise<void> = async () => {};
+		let inlineModelSelect: HTMLSelectElement | null = null;
 
-		// ── GitHub Copilot Client section ────────────────────────
-		// Heading row with Type dropdown + Test button
-		const clientFieldsEl = containerEl.createDiv();
+		const populateInlineDropdown = (models: ModelInfo[]) => {
+			if (inlineModelSelect) {
+				const prev = this.plugin.settings.inlineModel;
+				inlineModelSelect.empty();
+				const defOpt = inlineModelSelect.createEl('option', {text: 'Default (SDK default)'});
+				defOpt.value = '';
+				for (const model of models) {
+					const opt = inlineModelSelect.createEl('option', {text: model.name});
+					opt.value = model.id;
+				}
+				const ids = models.map(m => m.id);
+				inlineModelSelect.value = (prev && ids.includes(prev)) ? prev : '';
+				if (inlineModelSelect.value !== prev) {
+					this.plugin.settings.inlineModel = inlineModelSelect.value;
+					void this.plugin.saveSettings();
+				}
+			}
+		};
+
+		refreshModels = async () => {
+			try {
+				const preset = this.plugin.settings.providerPreset;
+				const isByok = preset !== 'github';
+				if (isByok && this.plugin.settings.providerModel) {
+					const id = this.plugin.settings.providerModel;
+					this.plugin.settings.inlineModel = id;
+					await this.plugin.saveSettings();
+					populateInlineDropdown([{id, name: id} as ModelInfo]);
+				} else if (isByok) {
+					populateInlineDropdown([]);
+				} else if (this.plugin.copilot) {
+					const models: ModelInfo[] = await this.plugin.copilot.listModels();
+					populateInlineDropdown(models);
+				}
+			} catch {
+				// silently ignore — dropdown keeps its placeholder
+			}
+		};
+
+		// ══════════════════════════════════════════════════════════
+		// TAB 1: Copilot client
+		// ══════════════════════════════════════════════════════════
+		const copilotPanel = panels['copilot']!;
+		const clientFieldsEl = copilotPanel.createDiv();
 
 		const renderClientFields = () => {
 			clientFieldsEl.empty();
@@ -290,9 +375,9 @@ export class SidekickSettingTab extends PluginSettingTab {
 			}
 		};
 
-		new Setting(containerEl)
-			.setName('Copilot client')
-			.setHeading()
+		new Setting(copilotPanel)
+			.setName('Client type')
+			.setDesc('Use a local or remote copilot client.')
 			.addDropdown(dropdown => dropdown
 				.addOptions({local: 'Local CLI', remote: 'Remote CLI'})
 				.setValue(this.plugin.settings.copilotType)
@@ -322,12 +407,14 @@ export class SidekickSettingTab extends PluginSettingTab {
 					}
 				}));
 
-		containerEl.appendChild(clientFieldsEl);
+		copilotPanel.appendChild(clientFieldsEl);
 		renderClientFields();
 
-		// --- Models section ---
-
-		const providerFieldsEl = containerEl.createDiv();
+		// ══════════════════════════════════════════════════════════
+		// TAB 2: Models
+		// ══════════════════════════════════════════════════════════
+		const modelsPanel = panels['models']!;
+		const providerFieldsEl = modelsPanel.createDiv();
 
 		const providerDefaults: Record<string, {baseUrl?: string; wireApi?: 'completions' | 'responses'}> = {
 			openai:          {baseUrl: 'https://api.openai.com/v1'},
@@ -403,7 +490,6 @@ export class SidekickSettingTab extends PluginSettingTab {
 							this.plugin.settings.providerWireApi = value as 'completions' | 'responses';
 							await this.plugin.saveSettings();
 						}));
-
 			}
 		};
 
@@ -417,16 +503,15 @@ export class SidekickSettingTab extends PluginSettingTab {
 			'other-openai': 'Other OpenAI-compatible',
 		};
 
-		new Setting(containerEl)
-			.setName('Models')
-			.setHeading()
+		new Setting(modelsPanel)
+			.setName('Provider')
+			.setDesc('Use the built-in models or configure your own (local or remote).')
 			.addDropdown(dropdown => dropdown
 				.addOptions(providerOptions)
 				.setValue(this.plugin.settings.providerPreset)
 				.onChange(async (value) => {
 					const newPreset = value as SidekickSettings['providerPreset'];
 					this.plugin.settings.providerPreset = newPreset;
-					// Apply provider-specific defaults
 					const defaults = providerDefaults[newPreset];
 					if (defaults?.baseUrl) {
 						this.plugin.settings.providerBaseUrl = defaults.baseUrl;
@@ -447,7 +532,6 @@ export class SidekickSettingTab extends PluginSettingTab {
 						if (!this.plugin.copilot) {
 							throw new Error('Copilot service is not available');
 						}
-						// Attempt to create (and immediately disconnect) a session to validate provider config
 						const testSession = await this.plugin.copilot.createSession({
 							onPermissionRequest: () => ({allow: false, kind: 'denied-interactively-by-user' as const}),
 							...(this.plugin.settings.providerModel ? {model: this.plugin.settings.providerModel} : {}),
@@ -479,58 +563,10 @@ export class SidekickSettingTab extends PluginSettingTab {
 					}
 				}));
 
-		containerEl.appendChild(providerFieldsEl);
+		modelsPanel.appendChild(providerFieldsEl);
 		rebuildProviderFields();
 
-		let inlineModelSelect: HTMLSelectElement | null = null;
-
-		const populateInlineDropdown = (models: ModelInfo[]) => {
-			if (inlineModelSelect) {
-				// Preserve current selection
-				const prev = this.plugin.settings.inlineModel;
-				inlineModelSelect.empty();
-				const defOpt = inlineModelSelect.createEl('option', {text: 'Default (SDK default)'});
-				defOpt.value = '';
-				for (const model of models) {
-					const opt = inlineModelSelect.createEl('option', {text: model.name});
-					opt.value = model.id;
-				}
-				// Restore previous selection if still available, otherwise reset
-				const ids = models.map(m => m.id);
-				inlineModelSelect.value = (prev && ids.includes(prev)) ? prev : '';
-				if (inlineModelSelect.value !== prev) {
-					this.plugin.settings.inlineModel = inlineModelSelect.value;
-					void this.plugin.saveSettings();
-				}
-			}
-		};
-
-		refreshModels = async () => {
-			try {
-				const preset = this.plugin.settings.providerPreset;
-				const isByok = preset !== 'github';
-				if (isByok && this.plugin.settings.providerModel) {
-					// BYOK providers with a model name: use it and auto-select
-					const id = this.plugin.settings.providerModel;
-					this.plugin.settings.inlineModel = id;
-					await this.plugin.saveSettings();
-					populateInlineDropdown([{id, name: id} as ModelInfo]);
-				} else if (isByok) {
-					// BYOK providers without a model name: clear the list
-					populateInlineDropdown([]);
-				} else if (this.plugin.copilot) {
-					const models: ModelInfo[] = await this.plugin.copilot.listModels();
-					populateInlineDropdown(models);
-				}
-			} catch {
-				// silently ignore — dropdown keeps its placeholder
-			}
-		};
-
-		// --- Sidekick settings section ---
-		new Setting(containerEl).setName('Capabilities').setHeading();
-
-		new Setting(containerEl)
+		new Setting(modelsPanel)
 			.setName('Inline operations model')
 			.setDesc('Model used for editor context-menu actions (fix grammar, summarize, etc.).')
 			.addDropdown(dropdown => {
@@ -546,7 +582,12 @@ export class SidekickSettingTab extends PluginSettingTab {
 				});
 			});
 
-		new Setting(containerEl)
+		// ══════════════════════════════════════════════════════════
+		// TAB 3: Capabilities
+		// ══════════════════════════════════════════════════════════
+		const capPanel = panels['capabilities']!;
+
+		new Setting(capPanel)
 			.setName('Sidekick folder')
 			.setDesc('Vault folder for agents, skills, tools and triggers.')
 			.addText(text => text
@@ -567,7 +608,6 @@ export class SidekickSettingTab extends PluginSettingTab {
 					try {
 						const base = normalizePath(this.plugin.settings.sidekickFolder);
 
-						// Create base folder and subfolders
 						for (const sub of ['', '/agents', '/skills', '/skills/ascii-art', '/tools', '/prompts', '/triggers']) {
 							const dir = normalizePath(`${base}${sub}`);
 							if (!this.app.vault.getAbstractFileByPath(dir)) {
@@ -575,19 +615,16 @@ export class SidekickSettingTab extends PluginSettingTab {
 							}
 						}
 
-						// Sample agent
 						const agentPath = normalizePath(`${base}/agents/grammar.agent.md`);
 						if (!this.app.vault.getAbstractFileByPath(agentPath)) {
 							await this.app.vault.create(agentPath, SAMPLE_AGENT_CONTENT);
 						}
 
-						// Sample skill
 						const skillPath = normalizePath(`${base}/skills/ascii-art/SKILL.md`);
 						if (!this.app.vault.getAbstractFileByPath(skillPath)) {
 							await this.app.vault.create(skillPath, SAMPLE_SKILL_CONTENT);
 						}
 
-						// Sample mcp.json
 						const mcpPath = normalizePath(`${base}/tools/mcp.json`);
 						if (!this.app.vault.getAbstractFileByPath(mcpPath)) {
 							const mcpContent = JSON.stringify({
@@ -601,13 +638,11 @@ export class SidekickSettingTab extends PluginSettingTab {
 							await this.app.vault.create(mcpPath, mcpContent);
 						}
 
-						// Sample prompt
 						const promptPath = normalizePath(`${base}/prompts/en-to-pt.prompt.md`);
 						if (!this.app.vault.getAbstractFileByPath(promptPath)) {
 							await this.app.vault.create(promptPath, SAMPLE_PROMPT_CONTENT);
 						}
 
-						// Sample trigger
 						const triggerPath = normalizePath(`${base}/triggers/daily-planner.trigger.md`);
 						if (!this.app.vault.getAbstractFileByPath(triggerPath)) {
 							await this.app.vault.create(triggerPath, SAMPLE_TRIGGER_CONTENT);
@@ -619,7 +654,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 					}
 				}));
 
-		new Setting(containerEl)
+		new Setting(capPanel)
 			.setName('Enable ghost-text autocomplete')
 			.setDesc('Show inline suggestions as you type (uses the inline operations model).')
 			.addToggle(toggle => toggle
@@ -629,7 +664,12 @@ export class SidekickSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		new Setting(containerEl)
+		// ══════════════════════════════════════════════════════════
+		// TAB 4: Tools
+		// ══════════════════════════════════════════════════════════
+		const toolsPanel = panels['tools']!;
+
+		new Setting(toolsPanel)
 			.setName('Tools approval')
 			.setDesc('Whether tool invocations require manual approval or are allowed automatically.')
 			.addDropdown(dropdown => dropdown
@@ -640,21 +680,12 @@ export class SidekickSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// ── MCP input variables section (collapsible) ───────────
-		let mcpExpanded = false;
-		const mcpInputsEl = containerEl.createDiv({cls: 'is-hidden'});
-		new Setting(containerEl.createDiv())
+		// ── MCP input variables (always visible) ─────────────────
+		new Setting(toolsPanel)
 			.setName('Input variables')
-			.setHeading()
-			.addExtraButton(btn => btn
-				.setIcon('chevron-right')
-				.setTooltip('Toggle section')
-				.onClick(() => {
-					mcpExpanded = !mcpExpanded;
-					mcpInputsEl.toggleClass('is-hidden', !mcpExpanded);
-					btn.setIcon(mcpExpanded ? 'chevron-down' : 'chevron-right');
-				}));
-		containerEl.appendChild(mcpInputsEl);
+			.setHeading();
+
+		const mcpInputsEl = toolsPanel.createDiv();
 		const renderMcpInputs = async () => {
 			mcpInputsEl.empty();
 			new Setting(mcpInputsEl)
@@ -675,7 +706,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 			} else {
 				for (const input of inputs) {
 					const isPassword = input.password === true;
-					const currentValue = await getMcpInputValue(this.app, this.plugin, input.id, isPassword);
+					const currentValue = getMcpInputValue(this.app, this.plugin, input.id, isPassword);
 					new Setting(mcpInputsEl)
 						.setName(input.id)
 						.setDesc(input.description + (isPassword ? ' (password — stored securely)' : ''))

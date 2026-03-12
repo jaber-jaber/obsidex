@@ -860,7 +860,7 @@ export class SidekickView extends ItemView {
 			// Build input resolver that reads stored values or prompts for missing ones
 			const inputResolver: InputResolver = async (input: McpInputVariable) => {
 				const isPassword = input.password === true;
-				let value = await getMcpInputValue(this.app, this.plugin, input.id, isPassword);
+				let value = getMcpInputValue(this.app, this.plugin, input.id, isPassword);
 				if (value === undefined) {
 					// Prompt user for the missing value
 					value = await new Promise<string | undefined>(resolve => {
