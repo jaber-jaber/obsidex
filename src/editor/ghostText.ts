@@ -24,7 +24,7 @@ import {
 	GutterMarker,
 } from '@codemirror/view';
 import {setIcon, Menu, Notice} from 'obsidian';
-import type SidekickPlugin from './main';
+import type SidekickPlugin from '../main';
 import {buildSidekickMenu} from './editorMenu';
 
 /* ── Constants ───────────────────────────────────────────────── */

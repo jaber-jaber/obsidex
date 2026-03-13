@@ -2,8 +2,8 @@ import {Plugin} from 'obsidian';
 import {DEFAULT_SETTINGS, SidekickSettings, SidekickSettingTab, SECURE_FIELDS, loadSecureField, saveSecureField} from "./settings";
 import {CopilotService} from "./copilot";
 import {SidekickView, SIDEKICK_VIEW_TYPE} from "./sidekickView";
-import {registerEditorMenu, registerFileMenu} from './editorMenu';
-import {buildGhostTextExtension} from "./ghostText";
+import {registerEditorMenu, registerFileMenu} from './editor/editorMenu';
+import {buildGhostTextExtension} from './editor/ghostText';
 
 export default class SidekickPlugin extends Plugin {
 	settings!: SidekickSettings;

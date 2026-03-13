@@ -1,18 +1,18 @@
 import {Editor, EventRef, MarkdownView, Menu, Modal, Notice, TextComponent, TFile, TFolder, normalizePath} from 'obsidian';
 import type {EditorView} from '@codemirror/view';
-import type SidekickPlugin from './main';
-import {approveAll} from './copilot';
-import type {PermissionRequest, PermissionRequestResult, UserInputRequest, UserInputResponse} from './copilot';
+import type SidekickPlugin from '../main';
+import {approveAll} from '../copilot';
+import type {PermissionRequest, PermissionRequestResult, UserInputRequest, UserInputResponse} from '../copilot';
 import {setFetching, triggerComplete} from './ghostText';
-import {SIDEKICK_VIEW_TYPE, SidekickView} from './sidekickView';
-import {EditModal} from './editModal';
-import {TASKS, TEXT_ACTION_SYSTEM_MESSAGE} from './tasks';
-import type {TextTask} from './tasks';
-import type {SelectionInfo} from './types';
+import {SIDEKICK_VIEW_TYPE, SidekickView} from '../sidekickView';
+import {EditModal} from '../modals/editModal';
+import {TASKS, TEXT_ACTION_SYSTEM_MESSAGE} from '../tasks';
+import type {TextTask} from '../tasks';
+import type {SelectionInfo} from '../types';
 
 // Re-export for consumers that still import from editorMenu
-export {TEXT_ACTION_SYSTEM_MESSAGE} from './tasks';
-export type {TextTask as TextAction} from './tasks';
+export {TEXT_ACTION_SYSTEM_MESSAGE} from '../tasks';
+export type {TextTask as TextAction} from '../tasks';
 
 /**
  * Register a "Sidekick" submenu on the editor right-click context menu.
@@ -873,7 +873,7 @@ function registerInlineSession(plugin: SidekickPlugin, sessionId: string, descri
 	}
 }
 
-export {type SelectionInfo} from './types';
+export {type SelectionInfo} from '../types';
 
 /** "Chat with Sidekick" — open the sidebar view, optionally with prompt text and selection. */
 export function openSidekickView(plugin: SidekickPlugin, promptText?: string, selection?: SelectionInfo): void {

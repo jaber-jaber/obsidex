@@ -1,11 +1,11 @@
 import {Modal, Notice, setIcon} from 'obsidian';
-import type SidekickPlugin from './main';
-import {approveAll} from './copilot';
-import type {PermissionRequest, PermissionRequestResult, UserInputRequest, UserInputResponse} from './copilot';
-import {TASKS, TEXT_ACTION_SYSTEM_MESSAGE} from './tasks';
-import type {TaskLabel} from './tasks';
-import {SidekickView, SIDEKICK_VIEW_TYPE} from './sidekickView';
-import {DEFAULT_EDIT_MODAL} from './settings';
+import type SidekickPlugin from '../main';
+import {approveAll} from '../copilot';
+import type {PermissionRequest, PermissionRequestResult, UserInputRequest, UserInputResponse} from '../copilot';
+import {TASKS, TEXT_ACTION_SYSTEM_MESSAGE} from '../tasks';
+import type {TaskLabel} from '../tasks';
+import {SidekickView, SIDEKICK_VIEW_TYPE} from '../sidekickView';
+import {DEFAULT_EDIT_MODAL} from '../settings';
 
 /** Tone options for the edit modal. */
 const TONES = [
