@@ -30,6 +30,6 @@
 	},
 	"dependencies": {
 		"@github/copilot-sdk": "^0.2.1",
-		"obsidian": "^1.12.7"
+		"obsidian": "^1.12.3"
 	}
 }
