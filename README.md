@@ -46,9 +46,7 @@ You're ready. Start chatting, or read on to unlock every feature.
 
 ### Installing this Codex fork
 
-If you want the Codex-enabled fork instead of upstream, use one of these:
-
-- **Manual build** — Build locally, then copy the plugin artifacts into your vault:
+If you want the Codex-enabled fork instead of upstream, set up **Manual build** — Build locally, then copy the plugin artifacts into your vault:
 
 ```bash
 npm install
