@@ -1,10 +1,50 @@
 import {App, Modal, Notice, PluginSettingTab, Setting, normalizePath} from "obsidian";
 import SidekickPlugin from "./main";
 import type {ModelInfo, ProviderConfig} from "./copilot";
+import type {CodexChatGptLoginStart, CodexDeviceCodeLoginStart} from './backend/types';
 import type {McpInputVariable} from "./types";
 import {loadMcpInputs, loadAgents} from "./configLoader";
 
 const DEFAULT_COPILOT_LOCATION = '';
+
+function openCodexBrowserLogin(login: CodexChatGptLoginStart): void {
+	const opened = globalThis.open?.(login.authUrl, '_blank');
+	if (!opened) {
+		void navigator.clipboard?.writeText(login.authUrl).catch(() => {});
+		new Notice('Could not open the browser automatically. The login URL was copied to your clipboard.');
+	}
+}
+
+function openCodexDeviceCodeModal(app: App, login: CodexDeviceCodeLoginStart): void {
+	const modal = new Modal(app);
+	modal.titleEl.setText('Codex device code login');
+	modal.contentEl.createEl('p', {
+		text: 'Open the verification URL below and enter the device code to finish signing in.',
+	});
+	const urlSetting = new Setting(modal.contentEl)
+		.setName('Verification URL')
+		.setDesc(login.verificationUrl);
+	urlSetting.addButton(button => button
+		.setButtonText('Open')
+		.setCta()
+		.onClick(() => {
+			globalThis.open?.(login.verificationUrl, '_blank');
+		}));
+	const codeSetting = new Setting(modal.contentEl)
+		.setName('Device code')
+		.setDesc(login.userCode);
+	codeSetting.addButton(button => button
+		.setButtonText('Copy')
+		.onClick(async () => {
+			try {
+				await navigator.clipboard.writeText(login.userCode);
+				new Notice('Device code copied.');
+			} catch {
+				new Notice('Could not copy the device code.');
+			}
+		}));
+	modal.open();
+}
 
 /** Helper to update a secure field in both runtime settings and local storage. */
 function updateSecureField(app: App, plugin: SidekickPlugin, key: keyof SidekickSettings, value: string): void {
@@ -13,6 +53,7 @@ function updateSecureField(app: App, plugin: SidekickPlugin, key: keyof Sidekick
 }
 
 export interface SidekickSettings {
+	backendType: 'copilot' | 'codex';
 	/** 'local' uses cliPath, 'remote' uses cliUrl. */
 	copilotType: 'local' | 'remote';
 	copilotLocation: string;
@@ -63,6 +104,8 @@ export interface SidekickSettings {
 	telegramAllowedUsers: string;
 	/** Default agent for Telegram bot sessions. */
 	telegramDefaultAgent: string;
+	/** Path to the local codex executable. Blank = resolve from PATH. */
+	codexPath: string;
 }
 
 /** Persisted preferences for the Edit modal form. */
@@ -93,6 +136,7 @@ export const DEFAULT_EDIT_MODAL: EditModalDefaults = {
 };
 
 export const DEFAULT_SETTINGS: SidekickSettings = {
+	backendType: 'copilot',
 	copilotType: 'local',
 	copilotLocation: DEFAULT_COPILOT_LOCATION,
 	cliUrl: '',
@@ -115,6 +159,7 @@ export const DEFAULT_SETTINGS: SidekickSettings = {
 	telegramBotToken: '',
 	telegramAllowedUsers: '',
 	telegramDefaultAgent: '',
+	codexPath: '',
 }
 
 /** Fields stored in vault-specific local storage instead of data.json. */
@@ -224,7 +269,7 @@ export class SidekickSettingTab extends PluginSettingTab {
 		const tabButtons: Record<string, HTMLElement> = {};
 		const tabIds = ['copilot', 'models', 'capabilities', 'tools', 'bots'] as const;
 		const tabLabels: Record<string, string> = {
-			copilot: 'Copilot',
+			copilot: 'Backend',
 			models: 'Models',
 			capabilities: 'Capabilities',
 			tools: 'Tools',
@@ -305,13 +350,115 @@ export class SidekickSettingTab extends PluginSettingTab {
 		};
 
 		// ══════════════════════════════════════════════════════════
-		// TAB 1: Copilot client
+		// TAB 1: Backend client
 		// ══════════════════════════════════════════════════════════
 		const copilotPanel = panels['copilot']!;
 		const clientFieldsEl = copilotPanel.createDiv();
+		const codexActionsEl = copilotPanel.createDiv();
 
 		const renderClientFields = () => {
 			clientFieldsEl.empty();
+			codexActionsEl.empty();
+
+			if (this.plugin.settings.backendType === 'codex') {
+				new Setting(clientFieldsEl)
+					.setName('Path')
+					.setDesc('Path to the local codex executable.')
+					.addText(text => text
+						.setPlaceholder('Leave blank to use codex from PATH')
+						.setValue(this.plugin.settings.codexPath)
+						.onChange(async (value) => {
+							const sanitized = value.trim();
+							if (/[;|&`$(){}]/.test(sanitized)) {
+								new Notice('Codex path contains invalid characters.');
+								return;
+							}
+							this.plugin.settings.codexPath = sanitized;
+							await this.plugin.saveSettings();
+							await this.plugin.initCopilot();
+						}));
+
+				new Setting(codexActionsEl)
+					.setName('ChatGPT account')
+					.setDesc('Connect Sidekick to your local Codex app-server and sign in with your personal account.')
+					.addButton(button => button
+						.setButtonText('Login')
+						.onClick(async () => {
+							button.setDisabled(true);
+							button.setButtonText('Opening…');
+							try {
+								if (!this.plugin.copilot?.startChatGptLogin) {
+									throw new Error('Codex login is not available');
+								}
+								const login = await this.plugin.copilot.startChatGptLogin();
+								openCodexBrowserLogin(login);
+								new Notice('Opened the Codex ChatGPT login flow in your browser.');
+							} catch (e) {
+								new Notice(`Login failed: ${String(e)}`);
+							} finally {
+								button.setDisabled(false);
+								button.setButtonText('Login');
+							}
+						}))
+					.addButton(button => button
+						.setButtonText('Device code')
+						.onClick(async () => {
+							button.setDisabled(true);
+							button.setButtonText('Starting…');
+							try {
+								if (!this.plugin.copilot?.startDeviceCodeLogin) {
+									throw new Error('Codex device-code login is not available');
+								}
+								const login = await this.plugin.copilot.startDeviceCodeLogin();
+								openCodexDeviceCodeModal(this.app, login);
+							} catch (e) {
+								new Notice(`Device-code login failed: ${String(e)}`);
+							} finally {
+								button.setDisabled(false);
+								button.setButtonText('Device code');
+							}
+						}))
+					.addButton(button => button
+						.setButtonText('Refresh')
+						.onClick(async () => {
+							button.setDisabled(true);
+							try {
+								if (!this.plugin.copilot?.getAccountStatus) {
+									throw new Error('Codex account status is not available');
+								}
+								const status = await this.plugin.copilot.getAccountStatus();
+								if (status.account) {
+									new Notice(`Signed in as ${status.account.email ?? status.account.type}${status.account.planType ? ` (${status.account.planType})` : ''}.`);
+								} else if (status.requiresOpenaiAuth) {
+									new Notice('Codex is connected, but no ChatGPT/OpenAI account is signed in.');
+								} else {
+									new Notice('Codex is connected and does not currently require OpenAI auth.');
+								}
+							} catch (e) {
+								new Notice(`Refresh failed: ${String(e)}`);
+							} finally {
+								button.setDisabled(false);
+							}
+						}))
+					.addButton(button => button
+						.setButtonText('Logout')
+						.onClick(async () => {
+							button.setDisabled(true);
+							try {
+								if (!this.plugin.copilot?.logoutAccount) {
+									throw new Error('Codex logout is not available');
+								}
+								await this.plugin.copilot.logoutAccount();
+								new Notice('Logged out from Codex.');
+							} catch (e) {
+								new Notice(`Logout failed: ${String(e)}`);
+							} finally {
+								button.setDisabled(false);
+							}
+						}));
+				return;
+			}
+
 			const isRemote = this.plugin.settings.copilotType === 'remote';
 
 			if (isRemote) {
@@ -389,11 +536,28 @@ export class SidekickSettingTab extends PluginSettingTab {
 		};
 
 		new Setting(copilotPanel)
+			.setName('Backend')
+			.setDesc('Choose whether Sidekick should talk to GitHub Copilot or local Codex.')
+			.addDropdown(dropdown => dropdown
+				.addOptions({copilot: 'GitHub Copilot', codex: 'OpenAI Codex'})
+				.setValue(this.plugin.settings.backendType)
+				.onChange(async (value) => {
+					this.plugin.settings.backendType = value as SidekickSettings['backendType'];
+					await this.plugin.saveSettings();
+					await this.plugin.initCopilot();
+					renderClientFields();
+					await refreshModels();
+				}));
+
+		new Setting(copilotPanel)
 			.setName('Client type')
-			.setDesc('Use a local or remote copilot client.')
+			.setDesc(this.plugin.settings.backendType === 'codex'
+				? 'Codex currently uses a local app-server process.'
+				: 'Use a local or remote copilot client.')
 			.addDropdown(dropdown => dropdown
 				.addOptions({local: 'Local CLI', remote: 'Remote CLI'})
 				.setValue(this.plugin.settings.copilotType)
+				.setDisabled(this.plugin.settings.backendType === 'codex')
 				.onChange(async (value) => {
 					this.plugin.settings.copilotType = value as 'local' | 'remote';
 					await this.plugin.saveSettings();
@@ -407,10 +571,10 @@ export class SidekickSettingTab extends PluginSettingTab {
 					button.setButtonText('Testing…');
 					try {
 						if (!this.plugin.copilot) {
-							throw new Error('Copilot service is not available');
+							throw new Error('Backend service is not available');
 						}
 						const result = await this.plugin.copilot.ping();
-						new Notice(`Copilot connected: ${result.message}`);
+						new Notice(result.message);
 						await refreshModels();
 					} catch (e) {
 						new Notice(`Test failed: ${String(e)}`);

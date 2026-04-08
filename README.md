@@ -6,6 +6,10 @@ Your AI-powered second brain inside Obsidian. Chat with agents, run tools, fire 
 
 Sidekick connects to GitHub Copilot or your own AI provider and gives you a fully configurable assistant panel with agents, skills, MCP tool servers, prompt templates, triggers, ghost-text autocomplete, and an AI-powered editor.
 
+This fork adds an OpenAI Codex backend so Sidekick can authenticate through a local Codex install and use your personal ChatGPT/Codex account where supported.
+
+Credit: the original Sidekick plugin was created by Alex Vieira ([`vieiraae`](https://github.com/vieiraae/obsidian-sidekick)). This fork builds on that foundation.
+
 ---
 
 ## Overview
@@ -40,10 +44,41 @@ The Sidekick panel sits in the right sidebar alongside your notes. Pick an agent
 
 You're ready. Start chatting, or read on to unlock every feature.
 
+### Installing this Codex fork
+
+If you want the Codex-enabled fork instead of upstream, use one of these:
+
+- **Via BRAT** — Add `https://github.com/jaber-jaber/obsidex` as the beta plugin repo. Once this fork is merged to `main`, BRAT can track it directly.
+- **Manual build** — Build locally, then copy the plugin artifacts into your vault:
+
+```bash
+npm install
+npm run build
+```
+
+Copy these files into `<YourVault>/.obsidian/plugins/sidekick/`:
+
+- `main.js`
+- `styles.css`
+- `manifest.json`
+
+Then reload Obsidian and re-enable **Sidekick** if needed.
+
+#### Codex runtime note
+
+The Codex backend launches a local `codex` executable. Cloning the Codex source repo is not enough by itself: the machine running Obsidian must also have the Codex CLI installed and runnable.
+
+- If Obsidian runs on **Windows**, install Codex on **Windows** and point **Settings → Sidekick → Path** at the Windows executable if necessary.
+- If Obsidian runs on **macOS**, install Codex on **macOS**.
+- If Obsidian runs on **Linux**, install Codex on **Linux**.
+
+After installation, select **OpenAI Codex** in **Settings → Sidekick → Backend**, set the path if needed, click **Test**, then complete **Login**.
+
 ---
 
 ## Table of contents
 
+- [Installing this Codex fork](#installing-this-codex-fork)
 - [Setting up the Copilot CLI](#setting-up-the-copilot-cli)
 - [The Sidekick panel](#the-sidekick-panel)
 - [Agents](#agents)
