@@ -48,7 +48,6 @@ You're ready. Start chatting, or read on to unlock every feature.
 
 If you want the Codex-enabled fork instead of upstream, use one of these:
 
-- **Via BRAT** — Add `https://github.com/jaber-jaber/obsidex` as the beta plugin repo. Once this fork is merged to `main`, BRAT can track it directly.
 - **Manual build** — Build locally, then copy the plugin artifacts into your vault:
 
 ```bash
