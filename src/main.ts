@@ -1,6 +1,8 @@
 import {Plugin} from 'obsidian';
 import {DEFAULT_SETTINGS, SidekickSettings, SidekickSettingTab, SECURE_FIELDS, loadSecureField, saveSecureField} from "./settings";
 import {CopilotService} from "./copilot";
+import type {AssistantBackend} from './backend/types';
+import {CodexBackend} from './codexBackend';
 import {SidekickView, SIDEKICK_VIEW_TYPE} from "./sidekickView";
 import {registerEditorMenu, registerFileMenu} from './editor/editorMenu';
 import {buildGhostTextExtension} from './editor/ghostText';
@@ -8,7 +10,7 @@ import {TelegramBotService} from './bots';
 
 export default class SidekickPlugin extends Plugin {
 	settings!: SidekickSettings;
-	copilot: CopilotService | null = null;
+	copilot: AssistantBackend | null = null;
 	telegramBot: TelegramBotService | null = null;
 
 	async onload() {
@@ -58,6 +60,13 @@ export default class SidekickPlugin extends Plugin {
 		// BYOK model listing: when a non-GitHub provider is configured, fetch
 		// models from the provider endpoint so client.listModels() returns them.
 		const onListModels = this.buildOnListModels();
+
+		if (s.backendType === 'codex') {
+			this.copilot = new CodexBackend({
+				codexPath: s.codexPath || undefined,
+			});
+			return;
+		}
 
 		if (s.copilotType === 'remote') {
 			const url = s.cliUrl.trim();
